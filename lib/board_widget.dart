@@ -77,31 +77,44 @@ class BoardWidget extends StatelessWidget {
                         child: Container(
                           color: isDark ? boardTheme.dark : boardTheme.light,
                           child: Stack(
-                            alignment: Alignment.center,
                             children: [
-                              if (isLast) Container(color: boardTheme.lastMove),
-                              if (isSel) Container(color: boardTheme.selected),
+                              if (isLast) Positioned.fill(child: Container(color: boardTheme.lastMove)),
+                              if (isSel) Positioned.fill(child: Container(color: boardTheme.selected)),
                               if (isCheck)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: boardTheme.checkColor, width: 3),
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: boardTheme.checkColor, width: 3),
+                                    ),
                                   ),
                                 ),
                               if (piece != null)
-                                Padding(
-                                  padding: const EdgeInsets.all(4),
-                                  child: CustomPaint(
-                                    painter: PiecePainter(
-                                        piece.substring(1), piece.substring(0, 1), pieceTheme),
+                                Positioned.fill(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(4),
+                                    child: pieceTheme.assetFolder != null
+                                        ? Image.asset(
+                                            pieceTheme.assetPath(
+                                                piece.substring(0, 1), piece.substring(1)),
+                                            fit: BoxFit.contain,
+                                          )
+                                        : CustomPaint(
+                                            size: Size.infinite,
+                                            painter: PiecePainter(
+                                                piece.substring(1), piece.substring(0, 1), pieceTheme),
+                                          ),
                                   ),
                                 ),
                               if (isTarget)
-                                Container(
-                                  width: 14,
-                                  height: 14,
-                                  decoration: BoxDecoration(
-                                    color: boardTheme.target,
-                                    shape: BoxShape.circle,
+                                Align(
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: boardTheme.target,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
                                 ),
                               if (col == 0)

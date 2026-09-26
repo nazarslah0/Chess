@@ -21,13 +21,19 @@ class BoardTheme {
 class PieceTheme {
   final String name;
   final Color whiteFill, whiteStroke, blackFill, blackStroke;
+  final String? assetFolder; // when set, real PNG artwork is used instead of drawing
   const PieceTheme({
     required this.name,
     required this.whiteFill,
     required this.whiteStroke,
     required this.blackFill,
     required this.blackStroke,
+    this.assetFolder,
   });
+
+  /// Asset path for piece [colorLetter] ('w'/'b') and [typeLetter] (K,Q,R,B,N,P).
+  String assetPath(String colorLetter, String typeLetter) =>
+      'assets/pieces/$assetFolder/$colorLetter$typeLetter.png';
 }
 
 const List<BoardTheme> boardThemes = [
@@ -81,32 +87,89 @@ const List<BoardTheme> boardThemes = [
     target: Color(0x556750A4),
     border: Color(0xFF463B30),
   ),
+  // Colors taken directly from the board pack the user provided.
+  BoardTheme(
+    name: 'أخضر (المجموعة المرفقة)',
+    light: Color(0xFFFFF2D4),
+    dark: Color(0xFF8CC936),
+    lastMove: Color(0x55FFD54A),
+    checkColor: Color(0xFFDC2626),
+    selected: Color(0x552563EB),
+    target: Color(0x552563EB),
+    border: Color(0xFF2E3B25),
+  ),
+  BoardTheme(
+    name: 'بني (المجموعة المرفقة)',
+    light: Color(0xFFFFF2D4),
+    dark: Color(0xFFDE925A),
+    lastMove: Color(0x552AA198),
+    checkColor: Color(0xFFDC2626),
+    selected: Color(0x552563EB),
+    target: Color(0x552563EB),
+    border: Color(0xFF3A2E22),
+  ),
+  BoardTheme(
+    name: 'أزرق (المجموعة المرفقة)',
+    light: Color(0xFFFFFFFF),
+    dark: Color(0xFF96DBFF),
+    lastMove: Color(0x55FFD54A),
+    checkColor: Color(0xFFDC2626),
+    selected: Color(0x552563EB),
+    target: Color(0x552563EB),
+    border: Color(0xFF23303A),
+  ),
 ];
 
 const List<PieceTheme> pieceThemes = [
+  // Real artwork you provided — used directly, no drawing.
   PieceTheme(
-    name: 'كلاسيكي أبيض/أسود',
+    name: 'قطع حقيقية — كلاسيكي',
+    whiteFill: Color(0xFFFCFCFC),
+    whiteStroke: Color(0xFF222222),
+    blackFill: Color(0xFF161616),
+    blackStroke: Color(0xFFEAEAEA),
+    assetFolder: 'classic',
+  ),
+  PieceTheme(
+    name: 'قطع حقيقية — مسطح',
+    whiteFill: Color(0xFFFCFCFC),
+    whiteStroke: Color(0xFF222222),
+    blackFill: Color(0xFF161616),
+    blackStroke: Color(0xFFEAEAEA),
+    assetFolder: 'flat',
+  ),
+  PieceTheme(
+    name: 'قطع حقيقية — خشبي',
+    whiteFill: Color(0xFFFCFCFC),
+    whiteStroke: Color(0xFF222222),
+    blackFill: Color(0xFF161616),
+    blackStroke: Color(0xFFEAEAEA),
+    assetFolder: 'wood',
+  ),
+  // Hand-drawn (CustomPainter) fallback themes — no assets needed.
+  PieceTheme(
+    name: 'مرسومة — كلاسيكي أبيض/أسود',
     whiteFill: Color(0xFFFCFCFC),
     whiteStroke: Color(0xFF222222),
     blackFill: Color(0xFF161616),
     blackStroke: Color(0xFFEAEAEA),
   ),
   PieceTheme(
-    name: 'خشبي',
+    name: 'مرسومة — خشبي',
     whiteFill: Color(0xFFF3E1C2),
     whiteStroke: Color(0xFF5C3A21),
     blackFill: Color(0xFF6B4226),
     blackStroke: Color(0xFFF3E1C2),
   ),
   PieceTheme(
-    name: 'نيون',
+    name: 'مرسومة — نيون',
     whiteFill: Color(0xFFB6FFF5),
     whiteStroke: Color(0xFF0891B2),
     blackFill: Color(0xFF7C3AED),
     blackStroke: Color(0xFFE9D5FF),
   ),
   PieceTheme(
-    name: 'ذهبي/فضي',
+    name: 'مرسومة — ذهبي/فضي',
     whiteFill: Color(0xFFE5E7EB),
     whiteStroke: Color(0xFF4B5563),
     blackFill: Color(0xFFB8860B),
@@ -122,6 +185,20 @@ class MoveEntry {
   const MoveEntry(this.san, this.color);
 }
 
+class PvLine {
+  final int depth;
+  final double evalPawns;
+  final String evalLabel;
+  final List<String> sans;
+  final String bestUci;
+  const PvLine({
+    required this.depth,
+    required this.evalPawns,
+    required this.evalLabel,
+    required this.sans,
+    required this.bestUci,
+  });
+}
 
 class GameState extends ChangeNotifier {
   ch.Chess chess = ch.Chess();

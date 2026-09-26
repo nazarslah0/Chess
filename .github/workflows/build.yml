@@ -14,7 +14,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.5'
+          flutter-version: '3.24.0'
           channel: 'stable'
           cache: true
 
@@ -23,7 +23,7 @@ jobs:
       # being committed, since `flutter create` output is machine/toolchain
       # specific. This does not overwrite lib/ or pubspec.yaml.
       - name: Generate platform folders
-        run: flutter create --platforms=android,ios --org com.chessanalyzer --project-name chess .
+        run: flutter create --platforms=android,ios --org com.chessanalyzer .
 
       - name: Get dependencies
         run: flutter pub get
@@ -31,7 +31,7 @@ jobs:
       - name: Static analysis (non-blocking)
         run: flutter analyze || true
 
-      - name: Build release APK
+      - name: Build a single release APK that installs on any phone
         run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4

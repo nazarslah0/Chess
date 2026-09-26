@@ -54,7 +54,11 @@ class SetupPanel extends StatelessWidget {
                               ),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: CustomPaint(painter: PiecePainter(t, color, pieceTheme)),
+                            child: SizedBox.expand(
+                              child: pieceTheme.assetFolder != null
+                                  ? Image.asset(pieceTheme.assetPath(color, t), fit: BoxFit.contain)
+                                  : CustomPaint(painter: PiecePainter(t, color, pieceTheme)),
+                            ),
                           ),
                         ),
                       ),
