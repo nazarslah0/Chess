@@ -3,7 +3,7 @@
 تطبيق Flutter حقيقي (بدون ميزة التعرف على الصور) يستخدم:
 
 - [`chess`](https://pub.dev/packages/chess) — توليد نقلات قانونية 100%، FEN، SAN (منفذ Dart لمكتبة chess.js).
-- [`stockfish`](https://pub.dev/packages/stockfish) — محرك **Stockfish 18 الحقيقي** مُصرَّف من المصدر عبر Dart FFI لأندرويد وiOS (لا محرك عشوائي أو وهمي).
+- [`stockfish_chess_engine`](https://pub.dev/packages/stockfish_chess_engine) — محرك **Stockfish 17 الحقيقي** مُصرَّف من المصدر عبر Dart FFI لأندرويد وiOS (لا محرك عشوائي أو وهمي).
 
 ## الميزات
 - إعداد وضعية يدويًا بلوحة قطع + وضع لعب بقواعد شطرنج كاملة وصحيحة.
@@ -19,7 +19,7 @@
 lib/
   main.dart          # نقطة الدخول + شاشة رئيسية تجمع كل شيء
   models.dart         # GameState (يغلّف حزمة chess) + الثيمات
-  engine_service.dart # غلاف بروتوكول UCI حول stockfish
+  engine_service.dart # غلاف بروتوكول UCI حول stockfish_chess_engine
   board_widget.dart   # رسم الرقعة + السهم
   piece_painter.dart  # رسم القطع الحقيقية (Staunton)
   panels.dart         # لوحة الإعداد، لوحة التحليل، قائمة النقلات
@@ -52,7 +52,7 @@ flutter run
 
 ## ملاحظة أمانة مهمة
 تمت كتابة هذا الكود بالاعتماد على التوثيق الرسمي المنشور لحزمتي `chess`
-و`stockfish`. لا تتوفر لدي بيئة بها اتصال إنترنت لتشغيل
+و`stockfish_chess_engine`. لا تتوفر لدي بيئة بها اتصال إنترنت لتشغيل
 `flutter pub get` / `flutter analyze` / `flutter build` هنا والتحقق محليًا من
 عدم وجود أي خطأ ترجمة قبل تسليمه لك — وهذا بالضبط ما سيفعله GitHub Actions
 عند أول تشغيل. إن ظهر أي خطأ بسيط في البناء (مثل اختلاف اسم دالة أو نوع
@@ -60,24 +60,6 @@ flutter run
 وسأصلحه فورًا.
 
 ## معمارية Stockfish
-`stockfish` يصرّف مصدر C++ الأصلي لـ Stockfish 18 أثناء البناء
+`stockfish_chess_engine` يصرّف مصدر C++ الأصلي لـ Stockfish 17 أثناء البناء
 عبر Dart FFI — أي محرك حقيقي متعدد القدرات يعمل محليًا بالكامل بلا إنترنت بعد
 التثبيت، وليس نسخة WebAssembly كما في نسخة الويب.
-
-
-## GitHub Actions
-
-The repository is intentionally kept free of generated Android Gradle files. GitHub Actions generates a clean Android host using Flutter 3.47, installs dependencies, runs `flutter analyze` and `flutter test`, then produces a universal APK, ABI-split APKs, and an AAB.
-
-Stockfish is provided by the `stockfish` Flutter package and runs on-device through native FFI; no Stockfish download is required when the app starts. The package version used here bundles Stockfish 18.
-
-### Termux upload
-
-```bash
-git init
-git branch -M main
-git add .
-git commit -m "Prepare Chess Analyzer for GitHub Actions"
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-git push -u origin main
-```

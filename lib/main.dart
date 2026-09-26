@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:chess/chess.dart' as ch;
-import 'models.dart' hide PvLine;
+import 'models.dart';
 import 'engine_service.dart';
 import 'board_widget.dart';
 import 'panels.dart';
@@ -34,7 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int boardThemeIdx = 0;
   int pieceThemeIdx = 0;
 
-  String engineStatus = '🟡 جاري تشغيل Stockfish 18 المضمّن...';
+  String engineStatus = '🟡 جاري تشغيل Stockfish...';
   bool engineReady = false;
   int depth = 18;
   int multiPv = 3;
