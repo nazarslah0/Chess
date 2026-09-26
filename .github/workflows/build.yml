@@ -52,6 +52,12 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
+      - name: Patch Stockfish Android repository
+        run: |
+          STOCKFISH_GRADLE=$(find "$HOME/.pub-cache/hosted/pub.dev" -path "*/stockfish-1.8.1/android/build.gradle" -print -quit)
+          test -n "$STOCKFISH_GRADLE"
+          sed -i 's/jcenter()/mavenCentral()/g' "$STOCKFISH_GRADLE"
+
       - name: Analyze Dart code
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
 
