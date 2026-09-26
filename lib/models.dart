@@ -122,20 +122,6 @@ class MoveEntry {
   const MoveEntry(this.san, this.color);
 }
 
-class PvLine {
-  final int depth;
-  final double evalPawns;
-  final String evalLabel;
-  final List<String> sans;
-  final String bestUci;
-  const PvLine({
-    required this.depth,
-    required this.evalPawns,
-    required this.evalLabel,
-    required this.sans,
-    required this.bestUci,
-  });
-}
 
 class GameState extends ChangeNotifier {
   ch.Chess chess = ch.Chess();
