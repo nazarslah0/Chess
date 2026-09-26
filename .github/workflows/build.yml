@@ -38,7 +38,7 @@ jobs:
       # Generate a clean Android host project with the same Flutter toolchain
       # used by CI. This avoids stale Gradle/AGP/Kotlin files from older apps.
       - name: Generate clean Android project
-        run: flutter create --platforms=android --org com.chessanalyzer --project-name chess_analyzer . --no-enable-android-new-dsl
+        run: flutter create --platforms=android --org com.chessanalyzer --project-name chess_analyzer .
 
       - name: Verify project
         run: |
