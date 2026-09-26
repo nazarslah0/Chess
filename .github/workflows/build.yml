@@ -23,7 +23,7 @@ jobs:
       # being committed, since `flutter create` output is machine/toolchain
       # specific. This does not overwrite lib/ or pubspec.yaml.
       - name: Generate platform folders
-        run: flutter create --platforms=android,ios --org com.chessanalyzer .
+        run: flutter create --platforms=android,ios --org com.chessanalyzer --project-name chess .
 
       - name: Get dependencies
         run: flutter pub get
