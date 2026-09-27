@@ -9,6 +9,728 @@ void main() => runApp(const ChessAnalyzerApp());
 
 class ChessAnalyzerApp extends StatelessWidget {
   const ChessAnalyzerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'محلل وضعيات الشطرنج',
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('ar'),
+      theme: ThemeData(
+        colorSchemeSeed: Colors.indigo,
+        useMaterial3: true,
+      ),
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: const HomeScreen(),
+      ),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final GameState state = GameState();
+  final EngineService engine = EngineService();
+
+  int boardThemeIdx = 0;
+  int pieceThemeIdx = 0;
+
+  String engineStatus = '🟡 جاري تشغيل Stockfish...';
+  bool engineReady = false;
+
+  int depth = 18;
+  int multiPv = 3;
+
+  final Map<int, PvLineDisplay> pvLines = {};
+
+  String? _analysisFen;
+  String? _lastKnownFen;
+
+  String? selectedSetupPiece;
+  bool eraseMode = false;
+
+  Set<String> targets = {};
+
+  final fenController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+
+    state.addListener(_onStateChanged);
+
+    engine.onStatus = (s) {
+      if (!mounted) return;
+
+      setState(() {
+        engineStatus = s;
+        engineReady = s.startsWith('🟢');
+      });
+    };
+
+    engine.onInfo = (mpv, raw) {
+      if (!mounted) return;
+
+      // إذا تغيرت الوضعية أثناء التحليل، تجاهل نتيجة التحليل القديمة.
+      if (_analysisFen == null ||
+          _analysisFen!.trim() != state.currentFen.trim()) {
+        return;
+      }
+
+      final display = _convertPv(_analysisFen!, raw);
+
+      // لا تعرض سطرًا لا يحتوي على نقلة قانونية.
+      if (display.moves.isEmpty) {
+        return;
+      }
+
+      setState(() {
+        pvLines[mpv] = display;
+      });
+    };
+
+    engine.onBestMove = (uci) {
+      // انتهاء البحث لا يعني تغيير الوضعية.
+      // الوضعية تبقى كما هي حتى يختار المستخدم النقلة.
+    };
+
+    engine.init();
+  }
+
+  void _onStateChanged() {
+    final fen = state.currentFen;
+
+    if (fen != _lastKnownFen) {
+      _lastKnownFen = fen;
+
+      if (engine.analyzing) {
+        engine.stop();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        pvLines.clear();
+        _analysisFen = null;
+        targets = {};
+      });
+    } else {
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    engine.dispose();
+    fenController.dispose();
+    super.dispose();
+  }
+
+  // ------------------------------------------------------------
+  // تحويل PV من UCI إلى SAN مع التحقق من كل نقلة
+  // ------------------------------------------------------------
+
+  PvLineDisplay _convertPv(String fen, PvLine raw) {
+    final c = ch.Chess();
+
+    final loaded = c.load(fen);
+
+    if (loaded == false) {
+      return PvLineDisplay(
+        depth: raw.depth,
+        evalLabel: raw.evalLabel,
+        moves: const [],
+        bestFrom: '',
+        bestTo: '',
+      );
+    }
+
+    final sans = <String>[];
+
+    String bestFrom = '';
+    String bestTo = '';
+
+    for (final uci in raw.uciMoves) {
+      // UCI الطبيعي:
+      // e2e4
+      // e7e8q
+      if (uci.length < 4) {
+        break;
+      }
+
+      final from = uci.substring(0, 2);
+      final to = uci.substring(2, 4);
+
+      String? promotion;
+
+      if (uci.length >= 5) {
+        promotion = uci.substring(4, 5).toLowerCase();
+      }
+
+      // احصل على النقلات القانونية في الوضع الحالي.
+      dynamic legalMoves;
+
+      try {
+        legalMoves = c.moves();
+      } catch (_) {
+        break;
+      }
+
+      bool isLegal = false;
+
+      try {
+        for (final move in legalMoves) {
+          final text = move.toString();
+
+          // مقارنة UCI الأساسية.
+          if (text == uci) {
+            isLegal = true;
+            break;
+          }
+
+          // بعض إصدارات chess قد تعرض Move ككائن.
+          try {
+            if (move.from == from && move.to == to) {
+              if (promotion == null ||
+                  move.promotion == promotion) {
+                isLegal = true;
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // إذا لم نستطع مطابقة النقلة، نجرب move مباشرة.
+      // ولكن لا نسمح بظهور السهم إلا إذا نجحت النقلة.
+      dynamic result;
+
+      if (isLegal) {
+        try {
+          final args = <String, dynamic>{
+            'from': from,
+            'to': to,
+          };
+
+          if (promotion != null) {
+            args['promotion'] = promotion;
+          }
+
+          result = c.move(args);
+        } catch (_) {
+          result = null;
+        }
+      } else {
+        // لا نرسم نقلة غير قانونية.
+        break;
+      }
+
+      if (result == null || result == false) {
+        break;
+      }
+
+      // أول نقلة قانونية فقط هي التي ترسم السهم.
+      if (bestFrom.isEmpty) {
+        bestFrom = from;
+        bestTo = to;
+      }
+
+      String san = uci;
+
+      // محاولة الحصول على SAN الحقيقي من سجل النقلات.
+      try {
+        final history = c.getHistory({'verbose': false}) as List;
+
+        if (history.isNotEmpty) {
+          final last = history.last;
+
+          if (last != null) {
+            san = last.toString();
+          }
+        }
+      } catch (_) {
+        // إذا فشل استخراج SAN نستخدم UCI.
+      }
+
+      sans.add(san);
+
+      // لا نعرض سلسلة ضخمة في الواجهة.
+      if (sans.length >= 8) {
+        break;
+      }
+    }
+
+    return PvLineDisplay(
+      depth: raw.depth,
+      evalLabel: raw.evalLabel,
+      moves: sans,
+      bestFrom: bestFrom,
+      bestTo: bestTo,
+    );
+  }
+
+  // ------------------------------------------------------------
+  // بدء التحليل
+  // ------------------------------------------------------------
+
+  void _analyze() {
+    final fen = state.currentFen.trim();
+
+    if (fen.isEmpty) {
+      return;
+    }
+
+    // امسح النتائج القديمة فورًا.
+    setState(() {
+      pvLines.clear();
+      _analysisFen = fen;
+    });
+
+    engine.analyze(
+      fen,
+      depth: depth,
+      multiPv: multiPv,
+    );
+  }
+
+  // ------------------------------------------------------------
+  // اختيار قطعة الترقية
+  // ------------------------------------------------------------
+
+  Future<String?> _askPromotion() {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('اختر قطعة الترقية'),
+          content: Wrap(
+            spacing: 8,
+            children: [
+              for (final p in ['q', 'r', 'b', 'n'])
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, p),
+                  child: Text(
+                    {
+                      'q': 'وزير',
+                      'r': 'رخ',
+                      'b': 'فيل',
+                      'n': 'حصان',
+                    }[p]!,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ------------------------------------------------------------
+  // التعامل مع الضغط على الرقعة
+  // ------------------------------------------------------------
+
+  void _onBoardTap(String sq) async {
+    // وضع إعداد الوضعية
+    if (state.mode == 'setup') {
+      if (eraseMode) {
+        state.eraseSetupSquare(sq);
+        return;
+      }
+
+      if (selectedSetupPiece != null) {
+        state.placeSetupPiece(
+          sq,
+          selectedSetupPiece!,
+        );
+        return;
+      }
+
+      state.tapSetupSelect(
+        sq == state.selectedSquare ? null : sq,
+      );
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // وضع اللعب
+    // ----------------------------------------------------------
+
+    if (state.selectedSquare == null) {
+      final board =
+          GameState.parseBoard(state.currentFen.split(' ')[0]);
+
+      final piece = board[sq];
+      final turn = state.currentFen.split(' ')[1];
+
+      if (piece != null && piece.startsWith(turn)) {
+        state.tapSetupSelect(sq);
+
+        setState(() {
+          targets = state.legalTargets(sq).toSet();
+        });
+      }
+
+      return;
+    }
+
+    // الضغط على نفس المربع
+    if (sq == state.selectedSquare) {
+      state.tapSetupSelect(null);
+
+      setState(() {
+        targets = {};
+      });
+
+      return;
+    }
+
+    // المربع ليس ضمن النقلات القانونية
+    if (!targets.contains(sq)) {
+      final board =
+          GameState.parseBoard(state.currentFen.split(' ')[0]);
+
+      final piece = board[sq];
+      final turn = state.currentFen.split(' ')[1];
+
+      if (piece != null && piece.startsWith(turn)) {
+        state.tapSetupSelect(sq);
+
+        setState(() {
+          targets = state.legalTargets(sq).toSet();
+        });
+      } else {
+        state.tapSetupSelect(null);
+
+        setState(() {
+          targets = {};
+        });
+      }
+
+      return;
+    }
+
+    final from = state.selectedSquare!;
+
+    final board =
+        GameState.parseBoard(state.currentFen.split(' ')[0]);
+
+    final movingPiece = board[from];
+
+    final isPromo =
+        movingPiece != null &&
+        movingPiece.substring(1) == 'P' &&
+        ((movingPiece.startsWith('w') && sq.endsWith('8')) ||
+            (movingPiece.startsWith('b') && sq.endsWith('1')));
+
+    setState(() {
+      targets = {};
+    });
+
+    if (isPromo) {
+      final promo = await _askPromotion();
+
+      state.tryMove(
+        from,
+        sq,
+        promotion: promo ?? 'q',
+      );
+    } else {
+      state.tryMove(
+        from,
+        sq,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bTheme = boardThemes[boardThemeIdx];
+    final pTheme = pieceThemes[pieceThemeIdx];
+
+    final top = pvLines[1];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('محلل وضعيات الشطرنج ♟️'),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'ثيم الرقعة',
+                      ),
+                      value: boardThemeIdx,
+                      items: [
+                        for (int i = 0;
+                            i < boardThemes.length;
+                            i++)
+                          DropdownMenuItem(
+                            value: i,
+                            child: Text(
+                              boardThemes[i].name,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          boardThemeIdx = v ?? 0;
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'ثيم القطع',
+                      ),
+                      value: pieceThemeIdx,
+                      items: [
+                        for (int i = 0;
+                            i < pieceThemes.length;
+                            i++)
+                          DropdownMenuItem(
+                            value: i,
+                            child: Text(
+                              pieceThemes[i].name,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          pieceThemeIdx = v ?? 0;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 10),
+
+              ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: 480),
+                child: BoardWidget(
+                  state: state,
+                  boardTheme: bTheme,
+                  pieceTheme: pTheme,
+                  onTap: _onBoardTap,
+                  targets: targets,
+
+                  // السهم يظهر فقط إذا وجد PV قانوني.
+                  arrowFrom:
+                      top?.bestFrom.isNotEmpty == true
+                          ? top!.bestFrom
+                          : null,
+
+                  arrowTo:
+                      top?.bestTo.isNotEmpty == true
+                          ? top!.bestTo
+                          : null,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton(
+                    onPressed: () {
+                      state.enterPlayModeFromSetup();
+                    },
+                    child: const Text('وضع اللعب'),
+                  ),
+
+                  OutlinedButton(
+                    onPressed: () {
+                      state.enterSetupModeFromCurrent();
+                    },
+                    child: const Text('إعداد الوضعية'),
+                  ),
+
+                  OutlinedButton(
+                    onPressed: () {
+                      state.flipBoard();
+                    },
+                    child: const Text('قلب الرقعة'),
+                  ),
+
+                  OutlinedButton(
+                    onPressed: () {
+                      state.startPosition();
+                    },
+                    child: const Text('الوضعية الابتدائية'),
+                  ),
+
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    onPressed: () {
+                      state.clearBoardForSetup();
+                    },
+                    child: const Text('مسح الرقعة'),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              if (state.mode == 'setup')
+                SetupPanel(
+                  state: state,
+                  pieceTheme: pTheme,
+                  selectedPiece: selectedSetupPiece,
+                  eraseMode: eraseMode,
+
+                  onSelectPiece: (p) {
+                    setState(() {
+                      selectedSetupPiece = p;
+                      eraseMode = false;
+                    });
+                  },
+
+                  onToggleErase: () {
+                    setState(() {
+                      eraseMode = !eraseMode;
+                      selectedSetupPiece = null;
+                    });
+                  },
+
+                  onChanged: () {},
+                ),
+
+              const SizedBox(height: 12),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'FEN',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+
+                      SelectableText(
+                        state.currentFen,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      TextField(
+                        controller: fenController,
+                        textDirection: TextDirection.ltr,
+                        textAlign: TextAlign.left,
+                        decoration: const InputDecoration(
+                          labelText: 'الصق FEN هنا',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      FilledButton(
+                        onPressed: () {
+                          final fen =
+                              fenController.text.trim();
+
+                          if (fen.isEmpty) return;
+
+                          state.loadFen(fen);
+                        },
+                        child: const Text('تحميل FEN'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              AnalysisPanel(
+                engineStatus: engineStatus,
+                engineReady: engineReady,
+                analyzing: engine.analyzing,
+                depth: depth,
+                multiPv: multiPv,
+                lines: pvLines,
+
+                onAnalyze: _analyze,
+
+                onStop: () {
+                  engine.stop();
+                },
+
+                onDepthChanged: (v) {
+                  setState(() {
+                    depth = v;
+                  });
+                },
+
+                onMultiPvChanged: (v) {
+                  setState(() {
+                    multiPv = v;
+                  });
+                },
+
+                onSelectLine: (idx) {
+                  // لا نغير الوضعية عند الضغط على PV.
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              MoveListPanel(
+                history: state.history,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:chess/chess.dart' as ch;
+import 'models.dart';
+import 'engine_service.dart';
+import 'board_widget.dart';
+import 'panels.dart';
+
+void main() => runApp(const ChessAnalyzerApp());
+
+class ChessAnalyzerApp extends StatelessWidget {
+  const ChessAnalyzerApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(

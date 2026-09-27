@@ -1,5 +1,5 @@
 name: chess_analyzer
-description: "Chess position analyzer with a real Stockfish engine (no image recognition)."
+description: "Chess position analyzer with a real Stockfish 19 engine."
 publish_to: "none"
 version: 1.0.0+1
 
@@ -9,33 +9,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   cupertino_icons: ^1.0.9
-<<<<<<< HEAD
-
-  # Real, legal chess move generation / FEN / SAN
   chess: ^0.8.1
-
-  # Stockfish engine Flutter package
-  # This package currently contains Stockfish 17.
-  stockfish_chess_engine: ^19.0.0
-=======
-  chess: ^0.8.1
-  stockfish_chess_engine: ^0.8.2
->>>>>>> d294903 (Upgrade Flutter dependencies)
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-<<<<<<< HEAD
-
-=======
->>>>>>> d294903 (Upgrade Flutter dependencies)
   flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/pieces/classic/
     - assets/pieces/flat/
