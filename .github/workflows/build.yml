@@ -18,30 +18,32 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # This repo ships only Dart source (lib/, pubspec.yaml). The native
-      # android/ and ios/ platform folders are generated here instead of
-      # being committed, since `flutter create` output is machine/toolchain
-      # specific. This does not overwrite lib/ or pubspec.yaml.
       - name: Generate platform folders
         run: flutter create --platforms=android,ios --org com.chessanalyzer --project-name chess .
 
       - name: Get dependencies
         run: flutter pub get
 
-      # The `stockfish` package's own bundled android/build.gradle still
-      # calls the removed jcenter() Gradle repository method, which fails
-      # to even parse on the Gradle/AGP version this Flutter release ships.
-      # This is a known incompatibility in that package's Android build
-      # script (not our Dart code) — patch it in place after fetching it.
       - name: Patch legacy jcenter() in stockfish package
         run: |
-          FILE=$(find "$HOME/.pub-cache" -path "*/stockfish-*/android/build.gradle" | head -n1)
-          if [ -n "$FILE" ]; then
-            sed -i 's/jcenter()/mavenCentral()/g' "$FILE"
-            echo "Patched: $FILE"
-          else
-            echo "::warning::stockfish android/build.gradle not found in pub-cache; skipping patch"
+          echo "PUB_CACHE resolves to: ${PUB_CACHE:-$HOME/.pub-cache}"
+          CACHE_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
+          FILES=$(find "$CACHE_ROOT" -path "*stockfish-*" -name "build.gradle*" 2>/dev/null)
+          if [ -z "$FILES" ]; then
+            echo "::error::No stockfish build.gradle* found under $CACHE_ROOT"
+            echo "Listing anything stockfish-related under the cache for debugging:"
+            find "$CACHE_ROOT" -iname "*stockfish*" -maxdepth 5 2>/dev/null || true
+            exit 1
           fi
+          for f in $FILES; do
+            echo "Found: $f"
+            sed -i 's/jcenter()/mavenCentral()/g' "$f"
+            if grep -q "jcenter" "$f"; then
+              echo "::error::jcenter() is still present in $f after patching"
+              exit 1
+            fi
+            echo "Successfully patched: $f"
+          done
 
       - name: Static analysis (non-blocking)
         run: flutter analyze || true
