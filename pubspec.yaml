@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.9
+<<<<<<< HEAD
 
   # Real, legal chess move generation / FEN / SAN
   chess: ^0.8.1
@@ -18,11 +19,18 @@ dependencies:
   # Stockfish engine Flutter package
   # This package currently contains Stockfish 17.
   stockfish_chess_engine: ^19.0.0
+=======
+  chess: ^0.8.1
+  stockfish_chess_engine: ^0.8.2
+>>>>>>> d294903 (Upgrade Flutter dependencies)
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+<<<<<<< HEAD
 
+=======
+>>>>>>> d294903 (Upgrade Flutter dependencies)
   flutter_lints: ^6.0.0
 
 flutter:
