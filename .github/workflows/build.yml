@@ -13,15 +13,15 @@ jobs:
 
     steps:
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Checkout
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Flutter
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -29,40 +29,46 @@ jobs:
           channel: stable
           cache: true
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Java 17
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Android SDK
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Android NDK
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Install Android NDK
         shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "ndk;27.2.12479018"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+          sdkmanager \
+            "platform-tools" \
+            "ndk;27.2.12479018"
 
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "NDK:"
-          ls -la "$ANDROID_HOME/ndk/27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018"
 
-      # ---------------------------------------------------------
+          ls -la \
+            "$ANDROID_HOME/ndk/27.2.12479018"
+
+      # =========================================================
       # Generate Android project
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Generate Android project
+        shell: bash
         run: |
           flutter create \
             --platforms=android \
@@ -70,33 +76,42 @@ jobs:
             --project-name chess \
             .
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Android native bridge
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Configure Android native bridge
         shell: bash
         run: |
-          mkdir -p android/app/src/main/kotlin/com/chessanalyzer/chess
+          mkdir -p \
+            android/app/src/main/kotlin/com/chessanalyzer/chess
 
-          cat > android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt <<'EOF'
+          cat > \
+            android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt \
+            <<'EOF'
+
           package com.chessanalyzer.chess
 
           import android.os.Bundle
           import io.flutter.embedding.android.FlutterActivity
 
           class MainActivity : FlutterActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
+
+              override fun onCreate(
+                  savedInstanceState: Bundle?
+              ) {
                   super.onCreate(savedInstanceState)
               }
           }
+
           EOF
 
           echo "MainActivity:"
-          cat android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt
+          cat \
+            android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Download official Stockfish 19
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Download Stockfish 19
         shell: bash
         run: |
@@ -110,40 +125,81 @@ jobs:
 
           cd stockfish
 
-          echo "Stockfish tag:"
+          echo "========================================"
+          echo "Stockfish version"
+          echo "========================================"
+
           git describe --tags --always
 
-          echo "Stockfish commit:"
+          echo "Commit:"
           git rev-parse HEAD
 
-      # ---------------------------------------------------------
+          echo "========================================"
+
+      # =========================================================
       # Build Stockfish 19 ARM64
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Build Stockfish 19 ARM64
         shell: bash
         run: |
           cd stockfish/src
 
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          export NDK_HOME="$ANDROID_NDK_HOME"
+
+          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+
+          export PATH="$TOOLCHAIN/bin:$PATH"
+
+          echo "========================================"
+          echo "Android NDK"
+          echo "========================================"
 
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "TOOLCHAIN=$TOOLCHAIN"
+
+          echo "========================================"
+          echo "Checking ARM64 compiler"
+          echo "========================================"
+
+          ls -lh \
+            "$TOOLCHAIN/bin/aarch64-linux-android29-clang"
+
+          ls -lh \
+            "$TOOLCHAIN/bin/aarch64-linux-android29-clang++"
+
+          echo "========================================"
+          echo "Compiler version"
+          echo "========================================"
+
+          "$TOOLCHAIN/bin/aarch64-linux-android29-clang++" \
+            --version
+
+          echo "========================================"
+          echo "Building Stockfish 19 ARM64"
+          echo "========================================"
 
           make -j2 build \
             ARCH=armv8 \
-            COMP=ndk
+            COMP=ndk \
+            ANDROID_NDK_HOME="$ANDROID_NDK_HOME"
 
-          echo "Stockfish executable:"
+          echo "========================================"
+          echo "Stockfish build result"
+          echo "========================================"
+
           file stockfish
 
           ls -lh stockfish
 
-      # ---------------------------------------------------------
-      # Copy Stockfish into Flutter assets
-      # ---------------------------------------------------------
-      - name: Prepare Stockfish files
+      # =========================================================
+      # Prepare Stockfish
+      # =========================================================
+      - name: Prepare Stockfish native files
         shell: bash
         run: |
-          mkdir -p android/app/src/main/assets/stockfish
+          mkdir -p \
+            android/app/src/main/assets/stockfish
 
           cp \
             stockfish/src/stockfish \
@@ -152,49 +208,66 @@ jobs:
           chmod 755 \
             android/app/src/main/assets/stockfish/stockfish
 
-          echo "Stockfish APK asset:"
+          echo "========================================"
+          echo "Stockfish APK asset"
+          echo "========================================"
+
           ls -lh \
             android/app/src/main/assets/stockfish/stockfish
 
-      # ---------------------------------------------------------
+          file \
+            android/app/src/main/assets/stockfish/stockfish
+
+      # =========================================================
       # Flutter dependencies
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Get dependencies
-        run: flutter pub get
+        shell: bash
+        run: |
+          flutter pub get
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Flutter doctor
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Flutter doctor
-        run: flutter doctor -v
+        shell: bash
+        run: |
+          flutter doctor -v
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Static analysis
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Static analysis
-        run: flutter analyze || true
+        shell: bash
+        run: |
+          flutter analyze || true
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Build ARM64 APK
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Build ARM64 release APK
+        shell: bash
         run: |
           flutter build apk \
             --release \
             --target-platform android-arm64
 
-      # ---------------------------------------------------------
+      # =========================================================
       # Show APK
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Show APK
         shell: bash
         run: |
-          echo "APK files:"
-          ls -lh build/app/outputs/flutter-apk/
+          echo "========================================"
+          echo "APK files"
+          echo "========================================"
 
-      # ---------------------------------------------------------
-      # Upload APK artifact
-      # ---------------------------------------------------------
+          ls -lh \
+            build/app/outputs/flutter-apk/
+
+      # =========================================================
+      # Upload APK
+      # =========================================================
       - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
         with:
@@ -202,9 +275,9 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      # ---------------------------------------------------------
+      # =========================================================
       # GitHub Release
-      # ---------------------------------------------------------
+      # =========================================================
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
