@@ -17,7 +17,7 @@ dependencies:
 
   # Stockfish engine Flutter package
   # This package currently contains Stockfish 17.
-  stockfish_chess_engine: ^0.8.2
+  stockfish_chess_engine: ^19.0.0
 
 dev_dependencies:
   flutter_test:
