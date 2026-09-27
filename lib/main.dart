@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:chess/chess.dart' as ch;
+
 import 'models.dart';
 import 'engine_service.dart';
 import 'board_widget.dart';
 import 'panels.dart';
 
-void main() => runApp(const ChessAnalyzerApp());
+void main() {
+  runApp(
+    const ChessAnalyzerApp(),
+  );
+}
+
+/// ============================================================
+/// App
+/// ============================================================
 
 class ChessAnalyzerApp extends StatelessWidget {
-  const ChessAnalyzerApp({super.key});
+  const ChessAnalyzerApp({
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -20,92 +31,152 @@ class ChessAnalyzerApp extends StatelessWidget {
         colorSchemeSeed: Colors.indigo,
         useMaterial3: true,
       ),
-      home: Directionality(
+      home: const Directionality(
         textDirection: TextDirection.rtl,
-        child: const HomeScreen(),
+        child: HomeScreen(),
       ),
     );
   }
 }
 
+/// ============================================================
+/// Home Screen
+/// ============================================================
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+  });
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() =>
+      _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final GameState state = GameState();
-  final EngineService engine = EngineService();
+  // ==========================================================
+  // State
+  // ==========================================================
+
+  final GameState state =
+      GameState();
+
+  final EngineService engine =
+      EngineService();
 
   int boardThemeIdx = 0;
   int pieceThemeIdx = 0;
 
-  String engineStatus = '🟡 جاري تشغيل Stockfish...';
+  String engineStatus =
+      '🟡 جاري تشغيل Stockfish 19...';
+
   bool engineReady = false;
 
   int depth = 18;
   int multiPv = 3;
 
-  final Map<int, PvLineDisplay> pvLines = {};
+  final Map<int, PvLineDisplay> pvLines =
+      <int, PvLineDisplay>{};
 
   String? _analysisFen;
   String? _lastKnownFen;
 
   String? selectedSetupPiece;
+
   bool eraseMode = false;
 
-  Set<String> targets = {};
+  Set<String> targets =
+      <String>{};
 
-  final fenController = TextEditingController();
+  final TextEditingController fenController =
+      TextEditingController();
+
+  // ==========================================================
+  // Init
+  // ==========================================================
 
   @override
   void initState() {
     super.initState();
 
-    state.addListener(_onStateChanged);
+    state.addListener(
+      _onStateChanged,
+    );
 
-    engine.onStatus = (s) {
-      if (!mounted) return;
-
-      setState(() {
-        engineStatus = s;
-        engineReady = s.startsWith('🟢');
-      });
-    };
-
-    engine.onInfo = (mpv, raw) {
-      if (!mounted) return;
-
-      // إذا تغيرت الوضعية أثناء التحليل، تجاهل نتيجة التحليل القديمة.
-      if (_analysisFen == null ||
-          _analysisFen!.trim() != state.currentFen.trim()) {
-        return;
-      }
-
-      final display = _convertPv(_analysisFen!, raw);
-
-      // لا تعرض سطرًا لا يحتوي على نقلة قانونية.
-      if (display.moves.isEmpty) {
+    engine.onStatus = (
+      String status,
+    ) {
+      if (!mounted) {
         return;
       }
 
       setState(() {
-        pvLines[mpv] = display;
+        engineStatus = status;
+
+        engineReady =
+            status.startsWith('🟢');
       });
     };
 
-    engine.onBestMove = (uci) {
-      // انتهاء البحث لا يعني تغيير الوضعية.
-      // الوضعية تبقى كما هي حتى يختار المستخدم النقلة.
+    engine.onInfo = (
+      int multipv,
+      PvLine raw,
+    ) {
+      if (!mounted) {
+        return;
+      }
+
+      final analysisFen =
+          _analysisFen;
+
+      if (analysisFen == null ||
+          analysisFen.trim() !=
+              state.currentFen.trim()) {
+        return;
+      }
+
+      final display =
+          _convertPv(
+        analysisFen,
+        raw,
+      );
+
+      // لا نعرض PV إذا لم نستطع
+      // تحويل أول نقلة إلى نقلة قانونية.
+      if (display.moves.isEmpty ||
+          display.bestFrom.isEmpty ||
+          display.bestTo.isEmpty) {
+        return;
+      }
+
+      setState(() {
+        pvLines[multipv] =
+            display;
+      });
     };
 
+    engine.onBestMove = (
+      String uci,
+    ) {
+      // bestmove يعني أن البحث انتهى.
+      // لا نغير وضعية الرقعة.
+    };
+
+    // تشغيل Stockfish 19.
     engine.init();
   }
 
+  // ==========================================================
+  // State changes
+  // ==========================================================
+
   void _onStateChanged() {
-    final fen = state.currentFen;
+    if (!mounted) {
+      return;
+    }
+
+    final fen =
+        state.currentFen.trim();
 
     if (fen != _lastKnownFen) {
       _lastKnownFen = fen;
@@ -114,157 +185,220 @@ class _HomeScreenState extends State<HomeScreen> {
         engine.stop();
       }
 
-      if (!mounted) return;
-
       setState(() {
         pvLines.clear();
+
         _analysisFen = null;
-        targets = {};
+
+        targets =
+            <String>{};
       });
-    } else {
-      if (mounted) {
-        setState(() {});
-      }
+
+      return;
     }
+
+    setState(() {});
   }
+
+  // ==========================================================
+  // Dispose
+  // ==========================================================
 
   @override
   void dispose() {
-    state.removeListener(_onStateChanged);
+    state.removeListener(
+      _onStateChanged,
+    );
+
     engine.dispose();
+
     fenController.dispose();
+
+    state.dispose();
+
     super.dispose();
   }
 
-  // ------------------------------------------------------------
-  // تحويل PV من UCI إلى SAN مع التحقق من كل نقلة
-  // ------------------------------------------------------------
+  // ==========================================================
+  // Convert UCI PV to SAN
+  // ==========================================================
 
-  PvLineDisplay _convertPv(String fen, PvLine raw) {
-    final c = ch.Chess();
+  PvLineDisplay _convertPv(
+    String fen,
+    PvLine raw,
+  ) {
+    final chess =
+        ch.Chess();
 
-    final loaded = c.load(fen);
+    try {
+      final loaded =
+          chess.load(fen);
 
-    if (loaded == false) {
+      if (loaded == false) {
+        return PvLineDisplay(
+          depth: raw.depth,
+          evalLabel: raw.evalLabel,
+          moves: const <String>[],
+          bestFrom: '',
+          bestTo: '',
+        );
+      }
+    } catch (_) {
       return PvLineDisplay(
         depth: raw.depth,
         evalLabel: raw.evalLabel,
-        moves: const [],
+        moves: const <String>[],
         bestFrom: '',
         bestTo: '',
       );
     }
 
-    final sans = <String>[];
+    final List<String> sans =
+        <String>[];
 
     String bestFrom = '';
     String bestTo = '';
 
-    for (final uci in raw.uciMoves) {
-      // UCI الطبيعي:
-      // e2e4
-      // e7e8q
+    for (final uci
+        in raw.uciMoves) {
       if (uci.length < 4) {
         break;
       }
 
-      final from = uci.substring(0, 2);
-      final to = uci.substring(2, 4);
+      final from =
+          uci.substring(0, 2);
+
+      final to =
+          uci.substring(2, 4);
 
       String? promotion;
 
       if (uci.length >= 5) {
-        promotion = uci.substring(4, 5).toLowerCase();
+        promotion =
+            uci
+                .substring(4, 5)
+                .toLowerCase();
       }
 
-      // احصل على النقلات القانونية في الوضع الحالي.
-      dynamic legalMoves;
-
-      try {
-        legalMoves = c.moves();
-      } catch (_) {
-        break;
-      }
+      // ------------------------------------------------------
+      // تحقق من أن النقلة موجودة ضمن النقلات القانونية.
+      // ------------------------------------------------------
 
       bool isLegal = false;
 
       try {
-        for (final move in legalMoves) {
-          final text = move.toString();
+        final legalMoves =
+            chess.moves(
+          <String, dynamic>{
+            'verbose': true,
+          },
+        );
 
-          // مقارنة UCI الأساسية.
-          if (text == uci) {
-            isLegal = true;
-            break;
-          }
-
-          // بعض إصدارات chess قد تعرض Move ككائن.
+        for (final move
+            in legalMoves) {
           try {
-            if (move.from == from && move.to == to) {
-              if (promotion == null ||
-                  move.promotion == promotion) {
-                isLegal = true;
-                break;
+            final moveFrom =
+                move.from.toString();
+
+            final moveTo =
+                move.to.toString();
+
+            if (moveFrom != from ||
+                moveTo != to) {
+              continue;
+            }
+
+            if (promotion != null) {
+              final movePromotion =
+                  move.promotion
+                      ?.toString()
+                      .toLowerCase();
+
+              if (movePromotion !=
+                  promotion) {
+                continue;
               }
             }
-          } catch (_) {}
-        }
-      } catch (_) {}
 
-      // إذا لم نستطع مطابقة النقلة، نجرب move مباشرة.
-      // ولكن لا نسمح بظهور السهم إلا إذا نجحت النقلة.
+            isLegal = true;
+            break;
+          } catch (_) {
+            // بعض إصدارات الحزمة
+            // قد تعيد تمثيلًا مختلفًا.
+          }
+        }
+      } catch (_) {
+        isLegal = false;
+      }
+
+      if (!isLegal) {
+        // لا نسمح بظهور سهم لنقلة
+        // غير موجودة فعليًا.
+        break;
+      }
+
+      // ------------------------------------------------------
+      // تنفيذ النقلة على نسخة التحليل.
+      // ------------------------------------------------------
+
+      final args =
+          <String, dynamic>{
+        'from': from,
+        'to': to,
+      };
+
+      if (promotion != null) {
+        args['promotion'] =
+            promotion;
+      }
+
       dynamic result;
 
-      if (isLegal) {
-        try {
-          final args = <String, dynamic>{
-            'from': from,
-            'to': to,
-          };
+      try {
+        result =
+            chess.move(args);
+      } catch (_) {
+        result = null;
+      }
 
-          if (promotion != null) {
-            args['promotion'] = promotion;
-          }
-
-          result = c.move(args);
-        } catch (_) {
-          result = null;
-        }
-      } else {
-        // لا نرسم نقلة غير قانونية.
+      if (result == null ||
+          result == false) {
         break;
       }
 
-      if (result == null || result == false) {
-        break;
-      }
+      // ------------------------------------------------------
+      // أول نقلة هي السهم الرئيسي.
+      // ------------------------------------------------------
 
-      // أول نقلة قانونية فقط هي التي ترسم السهم.
       if (bestFrom.isEmpty) {
         bestFrom = from;
         bestTo = to;
       }
 
-      String san = uci;
+      // ------------------------------------------------------
+      // الحصول على SAN.
+      // ------------------------------------------------------
 
-      // محاولة الحصول على SAN الحقيقي من سجل النقلات.
+      String san =
+          '$from$to';
+
       try {
-        final history = c.getHistory({'verbose': false}) as List;
+        final history =
+            chess.getHistory(
+          <String, dynamic>{
+            'verbose': false,
+          },
+        );
 
         if (history.isNotEmpty) {
-          final last = history.last;
-
-          if (last != null) {
-            san = last.toString();
-          }
+          san =
+              history.last.toString();
         }
-      } catch (_) {
-        // إذا فشل استخراج SAN نستخدم UCI.
-      }
+      } catch (_) {}
 
       sans.add(san);
 
-      // لا نعرض سلسلة ضخمة في الواجهة.
+      // لا نعرض أكثر من 8 نقلات.
       if (sans.length >= 8) {
         break;
       }
@@ -273,26 +407,43 @@ class _HomeScreenState extends State<HomeScreen> {
     return PvLineDisplay(
       depth: raw.depth,
       evalLabel: raw.evalLabel,
-      moves: sans,
+      moves: List<String>.unmodifiable(
+        sans,
+      ),
       bestFrom: bestFrom,
       bestTo: bestTo,
     );
   }
 
-  // ------------------------------------------------------------
-  // بدء التحليل
-  // ------------------------------------------------------------
+  // ==========================================================
+  // Analyze
+  // ==========================================================
 
   void _analyze() {
-    final fen = state.currentFen.trim();
+    final fen =
+        state.currentFen.trim();
 
     if (fen.isEmpty) {
       return;
     }
 
-    // امسح النتائج القديمة فورًا.
+    if (!engineReady) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Stockfish 19 لم يصبح جاهزًا بعد',
+          ),
+        ),
+      );
+
+      return;
+    }
+
     setState(() {
       pvLines.clear();
+
       _analysisFen = fen;
     });
 
@@ -303,24 +454,38 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------
-  // اختيار قطعة الترقية
-  // ------------------------------------------------------------
+  // ==========================================================
+  // Promotion dialog
+  // ==========================================================
 
   Future<String?> _askPromotion() {
     return showDialog<String>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('اختر قطعة الترقية'),
+          title: const Text(
+            'اختر قطعة الترقية',
+          ),
           content: Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              for (final p in ['q', 'r', 'b', 'n'])
+              for (final p
+                  in <String>[
+                'q',
+                'r',
+                'b',
+                'n',
+              ])
                 ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, p),
+                  onPressed: () {
+                    Navigator.pop(
+                      ctx,
+                      p,
+                    );
+                  },
                   child: Text(
-                    {
+                    <String, String>{
                       'q': 'وزير',
                       'r': 'رخ',
                       'b': 'فيل',
@@ -335,187 +500,336 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------
-  // التعامل مع الضغط على الرقعة
-  // ------------------------------------------------------------
+  // ==========================================================
+  // Board tap
+  // ==========================================================
 
-  void _onBoardTap(String sq) async {
-    // وضع إعداد الوضعية
+  Future<void> _onBoardTap(
+    String square,
+  ) async {
+    // --------------------------------------------------------
+    // Setup mode
+    // --------------------------------------------------------
+
     if (state.mode == 'setup') {
       if (eraseMode) {
-        state.eraseSetupSquare(sq);
+        state.eraseSetupSquare(
+          square,
+        );
+
         return;
       }
 
       if (selectedSetupPiece != null) {
         state.placeSetupPiece(
-          sq,
+          square,
           selectedSetupPiece!,
         );
+
         return;
       }
 
       state.tapSetupSelect(
-        sq == state.selectedSquare ? null : sq,
+        square ==
+                state.selectedSquare
+            ? null
+            : square,
       );
 
       return;
     }
 
-    // ----------------------------------------------------------
-    // وضع اللعب
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // Play mode
+    // --------------------------------------------------------
 
     if (state.selectedSquare == null) {
       final board =
-          GameState.parseBoard(state.currentFen.split(' ')[0]);
+          GameState.parseBoard(
+        state.currentFen
+            .split(' ')
+            .first,
+      );
 
-      final piece = board[sq];
-      final turn = state.currentFen.split(' ')[1];
+      final piece =
+          board[square];
 
-      if (piece != null && piece.startsWith(turn)) {
-        state.tapSetupSelect(sq);
+      final fenParts =
+          state.currentFen
+              .split(' ');
+
+      final turn =
+          fenParts.length > 1
+              ? fenParts[1]
+              : 'w';
+
+      if (piece != null &&
+          piece.startsWith(turn)) {
+        state.tapSetupSelect(
+          square,
+        );
 
         setState(() {
-          targets = state.legalTargets(sq).toSet();
+          targets =
+              state
+                  .legalTargets(square)
+                  .toSet();
         });
       }
 
       return;
     }
 
-    // الضغط على نفس المربع
-    if (sq == state.selectedSquare) {
-      state.tapSetupSelect(null);
+    // --------------------------------------------------------
+    // Same square
+    // --------------------------------------------------------
+
+    if (square ==
+        state.selectedSquare) {
+      state.tapSetupSelect(
+        null,
+      );
 
       setState(() {
-        targets = {};
+        targets =
+            <String>{};
       });
 
       return;
     }
 
-    // المربع ليس ضمن النقلات القانونية
-    if (!targets.contains(sq)) {
+    // --------------------------------------------------------
+    // New piece selection
+    // --------------------------------------------------------
+
+    if (!targets.contains(square)) {
       final board =
-          GameState.parseBoard(state.currentFen.split(' ')[0]);
+          GameState.parseBoard(
+        state.currentFen
+            .split(' ')
+            .first,
+      );
 
-      final piece = board[sq];
-      final turn = state.currentFen.split(' ')[1];
+      final piece =
+          board[square];
 
-      if (piece != null && piece.startsWith(turn)) {
-        state.tapSetupSelect(sq);
+      final fenParts =
+          state.currentFen
+              .split(' ');
+
+      final turn =
+          fenParts.length > 1
+              ? fenParts[1]
+              : 'w';
+
+      if (piece != null &&
+          piece.startsWith(turn)) {
+        state.tapSetupSelect(
+          square,
+        );
 
         setState(() {
-          targets = state.legalTargets(sq).toSet();
+          targets =
+              state
+                  .legalTargets(square)
+                  .toSet();
         });
       } else {
-        state.tapSetupSelect(null);
+        state.tapSetupSelect(
+          null,
+        );
 
         setState(() {
-          targets = {};
+          targets =
+              <String>{};
         });
       }
 
       return;
     }
 
-    final from = state.selectedSquare!;
+    // --------------------------------------------------------
+    // Make move
+    // --------------------------------------------------------
+
+    final from =
+        state.selectedSquare!;
 
     final board =
-        GameState.parseBoard(state.currentFen.split(' ')[0]);
+        GameState.parseBoard(
+      state.currentFen
+          .split(' ')
+          .first,
+    );
 
-    final movingPiece = board[from];
+    final movingPiece =
+        board[from];
 
-    final isPromo =
+    final isPromotion =
         movingPiece != null &&
-        movingPiece.substring(1) == 'P' &&
-        ((movingPiece.startsWith('w') && sq.endsWith('8')) ||
-            (movingPiece.startsWith('b') && sq.endsWith('1')));
+        movingPiece.length >= 2 &&
+        movingPiece.substring(1) ==
+            'P' &&
+        (
+          (
+            movingPiece.startsWith('w') &&
+            square.endsWith('8')
+          ) ||
+          (
+            movingPiece.startsWith('b') &&
+            square.endsWith('1')
+          )
+        );
 
     setState(() {
-      targets = {};
+      targets =
+          <String>{};
     });
 
-    if (isPromo) {
-      final promo = await _askPromotion();
+    if (isPromotion) {
+      final promotion =
+          await _askPromotion();
+
+      if (!mounted) {
+        return;
+      }
 
       state.tryMove(
         from,
-        sq,
-        promotion: promo ?? 'q',
+        square,
+        promotion:
+            promotion ?? 'q',
       );
     } else {
       state.tryMove(
         from,
-        sq,
+        square,
       );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bTheme = boardThemes[boardThemeIdx];
-    final pTheme = pieceThemes[pieceThemeIdx];
+  // ==========================================================
+  // Build
+  // ==========================================================
 
-    final top = pvLines[1];
+  @override
+  Widget build(
+    BuildContext context,
+  ) {
+    final boardTheme =
+        boardThemes[
+          boardThemeIdx
+        ];
+
+    final pieceTheme =
+        pieceThemes[
+          pieceThemeIdx
+        ];
+
+    final top =
+        pvLines[1];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('محلل وضعيات الشطرنج ♟️'),
+        title: const Text(
+          'محلل وضعيات الشطرنج ♟️',
+        ),
       ),
+
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
+          padding:
+              const EdgeInsets.all(12),
+
           child: Column(
             children: [
+              // =================================================
+              // Themes
+              // =================================================
+
               Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<int>(
-                      decoration: const InputDecoration(
-                        labelText: 'ثيم الرقعة',
+                    child:
+                        DropdownButtonFormField<int>(
+                      decoration:
+                          const InputDecoration(
+                        labelText:
+                            'ثيم الرقعة',
                       ),
-                      value: boardThemeIdx,
+
+                      value:
+                          boardThemeIdx,
+
                       items: [
-                        for (int i = 0;
-                            i < boardThemes.length;
-                            i++)
-                          DropdownMenuItem(
+                        for (
+                          int i = 0;
+                          i <
+                              boardThemes
+                                  .length;
+                          i++
+                        )
+                          DropdownMenuItem<int>(
                             value: i,
                             child: Text(
-                              boardThemes[i].name,
+                              boardThemes[
+                                i
+                              ].name,
                             ),
                           ),
                       ],
-                      onChanged: (v) {
+
+                      onChanged: (
+                        int? value,
+                      ) {
                         setState(() {
-                          boardThemeIdx = v ?? 0;
+                          boardThemeIdx =
+                              value ?? 0;
                         });
                       },
                     ),
                   ),
-                  const SizedBox(width: 8),
+
+                  const SizedBox(
+                    width: 8,
+                  ),
+
                   Expanded(
-                    child: DropdownButtonFormField<int>(
-                      decoration: const InputDecoration(
-                        labelText: 'ثيم القطع',
+                    child:
+                        DropdownButtonFormField<int>(
+                      decoration:
+                          const InputDecoration(
+                        labelText:
+                            'ثيم القطع',
                       ),
-                      value: pieceThemeIdx,
+
+                      value:
+                          pieceThemeIdx,
+
                       items: [
-                        for (int i = 0;
-                            i < pieceThemes.length;
-                            i++)
-                          DropdownMenuItem(
+                        for (
+                          int i = 0;
+                          i <
+                              pieceThemes
+                                  .length;
+                          i++
+                        )
+                          DropdownMenuItem<int>(
                             value: i,
                             child: Text(
-                              pieceThemes[i].name,
+                              pieceThemes[
+                                i
+                              ].name,
                             ),
                           ),
                       ],
-                      onChanged: (v) {
+
+                      onChanged: (
+                        int? value,
+                      ) {
                         setState(() {
-                          pieceThemeIdx = v ?? 0;
+                          pieceThemeIdx =
+                              value ?? 0;
                         });
                       },
                     ),
@@ -523,552 +837,360 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(
+                height: 10,
+              ),
+
+              // =================================================
+              // Board
+              // =================================================
 
               ConstrainedBox(
                 constraints:
-                    const BoxConstraints(maxWidth: 480),
+                    const BoxConstraints(
+                  maxWidth: 480,
+                ),
+
                 child: BoardWidget(
                   state: state,
-                  boardTheme: bTheme,
-                  pieceTheme: pTheme,
-                  onTap: _onBoardTap,
-                  targets: targets,
+                  boardTheme:
+                      boardTheme,
+                  pieceTheme:
+                      pieceTheme,
+                  onTap:
+                      _onBoardTap,
+                  targets:
+                      targets,
 
-                  // السهم يظهر فقط إذا وجد PV قانوني.
                   arrowFrom:
-                      top?.bestFrom.isNotEmpty == true
-                          ? top!.bestFrom
+                      top != null &&
+                              top.bestFrom
+                                  .isNotEmpty
+                          ? top.bestFrom
                           : null,
 
                   arrowTo:
-                      top?.bestTo.isNotEmpty == true
-                          ? top!.bestTo
+                      top != null &&
+                              top.bestTo
+                                  .isNotEmpty
+                          ? top.bestTo
                           : null,
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(
+                height: 10,
+              ),
+
+              // =================================================
+              // Board controls
+              // =================================================
 
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                alignment: WrapAlignment.center,
+                alignment:
+                    WrapAlignment.center,
+
                 children: [
                   FilledButton(
                     onPressed: () {
-                      state.enterPlayModeFromSetup();
+                      state
+                          .enterPlayModeFromSetup();
                     },
-                    child: const Text('وضع اللعب'),
+
+                    child:
+                        const Text(
+                      'وضع اللعب',
+                    ),
                   ),
 
                   OutlinedButton(
                     onPressed: () {
-                      state.enterSetupModeFromCurrent();
+                      state
+                          .enterSetupModeFromCurrent();
                     },
-                    child: const Text('إعداد الوضعية'),
+
+                    child:
+                        const Text(
+                      'إعداد الوضعية',
+                    ),
                   ),
 
                   OutlinedButton(
                     onPressed: () {
                       state.flipBoard();
                     },
-                    child: const Text('قلب الرقعة'),
+
+                    child:
+                        const Text(
+                      'قلب الرقعة',
+                    ),
                   ),
 
                   OutlinedButton(
                     onPressed: () {
                       state.startPosition();
                     },
-                    child: const Text('الوضعية الابتدائية'),
+
+                    child:
+                        const Text(
+                      'الوضعية الابتدائية',
+                    ),
                   ),
 
                   OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
+                    style:
+                        OutlinedButton.styleFrom(
+                      foregroundColor:
+                          Colors.red,
                     ),
+
                     onPressed: () {
-                      state.clearBoardForSetup();
+                      state
+                          .clearBoardForSetup();
                     },
-                    child: const Text('مسح الرقعة'),
+
+                    child:
+                        const Text(
+                      'مسح الرقعة',
+                    ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(
+                height: 12,
+              ),
 
-              if (state.mode == 'setup')
+              // =================================================
+              // Setup panel
+              // =================================================
+
+              if (state.mode ==
+                  'setup')
                 SetupPanel(
                   state: state,
-                  pieceTheme: pTheme,
-                  selectedPiece: selectedSetupPiece,
-                  eraseMode: eraseMode,
+                  pieceTheme:
+                      pieceTheme,
+                  selectedPiece:
+                      selectedSetupPiece,
+                  eraseMode:
+                      eraseMode,
 
-                  onSelectPiece: (p) {
+                  onSelectPiece: (
+                    String piece,
+                  ) {
                     setState(() {
-                      selectedSetupPiece = p;
-                      eraseMode = false;
+                      selectedSetupPiece =
+                          piece;
+
+                      eraseMode =
+                          false;
                     });
                   },
 
                   onToggleErase: () {
                     setState(() {
-                      eraseMode = !eraseMode;
-                      selectedSetupPiece = null;
+                      eraseMode =
+                          !eraseMode;
+
+                      selectedSetupPiece =
+                          null;
                     });
                   },
 
                   onChanged: () {},
                 ),
 
-              const SizedBox(height: 12),
+              const SizedBox(
+                height: 12,
+              ),
+
+              // =================================================
+              // FEN
+              // =================================================
 
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding:
+                      const EdgeInsets.all(
+                    12,
+                  ),
+
                   child: Column(
                     crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                        CrossAxisAlignment
+                            .start,
+
                     children: [
                       const Text(
                         'FEN',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
+                        style:
+                            TextStyle(
+                          fontWeight:
+                              FontWeight.bold,
                         ),
+                      ),
+
+                      const SizedBox(
+                        height: 5,
                       ),
 
                       SelectableText(
                         state.currentFen,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
+                        style:
+                            const TextStyle(
+                          fontFamily:
+                              'monospace',
                           fontSize: 12,
                         ),
                       ),
 
-                      const SizedBox(height: 8),
+                      const SizedBox(
+                        height: 8,
+                      ),
 
                       TextField(
-                        controller: fenController,
-                        textDirection: TextDirection.ltr,
-                        textAlign: TextAlign.left,
-                        decoration: const InputDecoration(
-                          labelText: 'الصق FEN هنا',
-                          border: OutlineInputBorder(),
+                        controller:
+                            fenController,
+
+                        textDirection:
+                            TextDirection
+                                .ltr,
+
+                        textAlign:
+                            TextAlign.left,
+
+                        decoration:
+                            const InputDecoration(
+                          labelText:
+                              'الصق FEN هنا',
+                          border:
+                              OutlineInputBorder(),
                         ),
                       ),
 
-                      const SizedBox(height: 8),
+                      const SizedBox(
+                        height: 8,
+                      ),
 
-                      FilledButton(
+                      FilledButton.icon(
                         onPressed: () {
                           final fen =
-                              fenController.text.trim();
+                              fenController
+                                  .text
+                                  .trim();
 
-                          if (fen.isEmpty) return;
+                          if (fen.isEmpty) {
+                            return;
+                          }
 
-                          state.loadFen(fen);
+                          final loaded =
+                              state.loadFen(
+                            fen,
+                          );
+
+                          if (!loaded &&
+                              mounted) {
+                            ScaffoldMessenger
+                                .of(
+                              context,
+                            ).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text(
+                                  'FEN غير صالح',
+                                ),
+                              ),
+                            );
+                          }
                         },
-                        child: const Text('تحميل FEN'),
+
+                        icon:
+                            const Icon(
+                          Icons.download,
+                        ),
+
+                        label:
+                            const Text(
+                          'تحميل FEN',
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(
+                height: 12,
+              ),
+
+              // =================================================
+              // Analysis
+              // =================================================
 
               AnalysisPanel(
-                engineStatus: engineStatus,
-                engineReady: engineReady,
-                analyzing: engine.analyzing,
-                depth: depth,
-                multiPv: multiPv,
-                lines: pvLines,
+                engineStatus:
+                    engineStatus,
 
-                onAnalyze: _analyze,
+                engineReady:
+                    engineReady,
+
+                analyzing:
+                    engine.analyzing,
+
+                depth:
+                    depth,
+
+                multiPv:
+                    multiPv,
+
+                lines:
+                    pvLines,
+
+                onAnalyze:
+                    _analyze,
 
                 onStop: () {
                   engine.stop();
                 },
 
-                onDepthChanged: (v) {
+                onDepthChanged: (
+                  int value,
+                ) {
                   setState(() {
-                    depth = v;
+                    depth = value;
                   });
                 },
 
-                onMultiPvChanged: (v) {
+                onMultiPvChanged: (
+                  int value,
+                ) {
                   setState(() {
-                    multiPv = v;
+                    multiPv = value;
                   });
                 },
 
-                onSelectLine: (idx) {
-                  // لا نغير الوضعية عند الضغط على PV.
+                onSelectLine: (
+                  int index,
+                ) {
+                  // لا نغير وضعية الرقعة
+                  // عند اختيار PV.
                 },
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(
+                height: 12,
+              ),
+
+              // =================================================
+              // Move history
+              // =================================================
 
               MoveListPanel(
-                history: state.history,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-import 'package:flutter/material.dart';
-import 'package:chess/chess.dart' as ch;
-import 'models.dart';
-import 'engine_service.dart';
-import 'board_widget.dart';
-import 'panels.dart';
-
-void main() => runApp(const ChessAnalyzerApp());
-
-class ChessAnalyzerApp extends StatelessWidget {
-  const ChessAnalyzerApp({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'محلل وضعيات الشطرنج',
-      debugShowCheckedModeBanner: false,
-      locale: const Locale('ar'),
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-      home: Directionality(textDirection: TextDirection.rtl, child: const HomeScreen()),
-    );
-  }
-}
-
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  final GameState state = GameState();
-  final EngineService engine = EngineService();
-
-  int boardThemeIdx = 0;
-  int pieceThemeIdx = 0;
-
-  String engineStatus = '🟡 جاري تشغيل Stockfish...';
-  bool engineReady = false;
-  int depth = 18;
-  int multiPv = 3;
-  final Map<int, PvLineDisplay> pvLines = {};
-  String? _analysisFen;
-  String? _lastKnownFen;
-
-  String? selectedSetupPiece;
-  bool eraseMode = false;
-  Set<String> targets = {};
-
-  final fenController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    state.addListener(_onStateChanged);
-    engine.onStatus = (s) => setState(() {
-          engineStatus = s;
-          engineReady = s.startsWith('🟢');
-        });
-    engine.onInfo = (mpv, raw) {
-      if (_analysisFen != state.currentFen) return; // stale: board changed mid-search
-      final display = _convertPv(_analysisFen!, raw);
-      setState(() => pvLines[mpv] = display);
-    };
-    engine.onBestMove = (uci) {
-      // bestmove marks completion; nothing further to compute here.
-    };
-    engine.init();
-  }
-
-  void _onStateChanged() {
-    final fen = state.currentFen;
-    if (fen != _lastKnownFen) {
-      _lastKnownFen = fen;
-      if (engine.analyzing) engine.stop();
-      setState(() {
-        pvLines.clear();
-        _analysisFen = null;
-      });
-    } else {
-      setState(() {});
-    }
-  }
-
-  @override
-  void dispose() {
-    state.removeListener(_onStateChanged);
-    engine.dispose();
-    super.dispose();
-  }
-
-  PvLineDisplay _convertPv(String fen, PvLine raw) {
-    final c = ch.Chess();
-    c.load(fen);
-    final sans = <String>[];
-    for (final uci in raw.uciMoves) {
-      if (uci.length < 4) break;
-      final from = uci.substring(0, 2);
-      final to = uci.substring(2, 4);
-      final promo = uci.length > 4 ? uci.substring(4, 5) : null;
-      int legalCount = 0;
-      try {
-        legalCount = (c.moves() as List).length;
-      } catch (_) {}
-      final args = <String, dynamic>{'from': from, 'to': to};
-      if (promo != null) args['promotion'] = promo;
-      final res = c.move(args);
-      if (res == null || res == false) break;
-      String san = '$from$to';
-      try {
-        final hist = c.getHistory({'verbose': false}) as List;
-        if (hist.isNotEmpty) san = hist.last.toString();
-      } catch (_) {}
-      sans.add(legalCount == 1 ? '$san (إجبارية)' : san);
-      if (sans.length >= 8) break;
-    }
-    final first = raw.uciMoves.isNotEmpty ? raw.uciMoves.first : '';
-    return PvLineDisplay(
-      depth: raw.depth,
-      evalLabel: raw.evalLabel,
-      moves: sans,
-      bestFrom: first.length >= 2 ? first.substring(0, 2) : '',
-      bestTo: first.length >= 4 ? first.substring(2, 4) : '',
-    );
-  }
-
-  void _analyze() {
-    _analysisFen = state.currentFen;
-    setState(() => pvLines.clear());
-    engine.analyze(_analysisFen!, depth: depth, multiPv: multiPv);
-  }
-
-  Future<String?> _askPromotion() {
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('اختر قطعة الترقية'),
-        content: Wrap(
-          spacing: 8,
-          children: [
-            for (final p in ['q', 'r', 'b', 'n'])
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, p),
-                child: Text({'q': 'وزير', 'r': 'رخ', 'b': 'فيل', 'n': 'حصان'}[p]!),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _onBoardTap(String sq) async {
-    if (state.mode == 'setup') {
-      if (eraseMode) {
-        state.eraseSetupSquare(sq);
-        return;
-      }
-      if (selectedSetupPiece != null) {
-        state.placeSetupPiece(sq, selectedSetupPiece!);
-        return;
-      }
-      state.tapSetupSelect(sq == state.selectedSquare ? null : sq);
-      return;
-    }
-    // play mode
-    if (state.selectedSquare == null) {
-      final board = GameState.parseBoard(state.currentFen.split(' ')[0]);
-      final piece = board[sq];
-      final turn = state.currentFen.split(' ')[1];
-      if (piece != null && piece.startsWith(turn)) {
-        state.tapSetupSelect(sq);
-        setState(() => targets = state.legalTargets(sq).toSet());
-      }
-      return;
-    }
-    if (sq == state.selectedSquare) {
-      state.tapSetupSelect(null);
-      setState(() => targets = {});
-      return;
-    }
-    if (!targets.contains(sq)) {
-      final board = GameState.parseBoard(state.currentFen.split(' ')[0]);
-      final piece = board[sq];
-      final turn = state.currentFen.split(' ')[1];
-      if (piece != null && piece.startsWith(turn)) {
-        state.tapSetupSelect(sq);
-        setState(() => targets = state.legalTargets(sq).toSet());
-      } else {
-        state.tapSetupSelect(null);
-        setState(() => targets = {});
-      }
-      return;
-    }
-    final from = state.selectedSquare!;
-    final board = GameState.parseBoard(state.currentFen.split(' ')[0]);
-    final movingPiece = board[from];
-    final isPromo = movingPiece != null &&
-        movingPiece.substring(1) == 'P' &&
-        ((movingPiece.startsWith('w') && sq.endsWith('8')) ||
-            (movingPiece.startsWith('b') && sq.endsWith('1')));
-    setState(() => targets = {});
-    if (isPromo) {
-      final promo = await _askPromotion();
-      state.tryMove(from, sq, promotion: promo ?? 'q');
-    } else {
-      state.tryMove(from, sq);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bTheme = boardThemes[boardThemeIdx];
-    final pTheme = pieceThemes[pieceThemeIdx];
-    final top = pvLines[1];
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('محلل وضعيات الشطرنج ♟️')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      decoration: const InputDecoration(labelText: 'ثيم الرقعة'),
-                      value: boardThemeIdx,
-                      items: [
-                        for (int i = 0; i < boardThemes.length; i++)
-                          DropdownMenuItem(value: i, child: Text(boardThemes[i].name)),
-                      ],
-                      onChanged: (v) => setState(() => boardThemeIdx = v ?? 0),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      decoration: const InputDecoration(labelText: 'ثيم القطع'),
-                      value: pieceThemeIdx,
-                      items: [
-                        for (int i = 0; i < pieceThemes.length; i++)
-                          DropdownMenuItem(value: i, child: Text(pieceThemes[i].name)),
-                      ],
-                      onChanged: (v) => setState(() => pieceThemeIdx = v ?? 0),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: BoardWidget(
-                  state: state,
-                  boardTheme: bTheme,
-                  pieceTheme: pTheme,
-                  onTap: _onBoardTap,
-                  targets: targets,
-                  arrowFrom: top?.bestFrom.isNotEmpty == true ? top!.bestFrom : null,
-                  arrowTo: top?.bestTo.isNotEmpty == true ? top!.bestTo : null,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  FilledButton(
-                    onPressed: () {
-                      state.enterPlayModeFromSetup();
-                    },
-                    child: const Text('وضع اللعب'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => state.enterSetupModeFromCurrent(),
-                    child: const Text('إعداد الوضعية'),
-                  ),
-                  OutlinedButton(onPressed: () => state.flipBoard(), child: const Text('قلب الرقعة')),
-                  OutlinedButton(
-                      onPressed: () => state.startPosition(), child: const Text('الوضعية الابتدائية')),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                    onPressed: () => state.clearBoardForSetup(),
-                    child: const Text('مسح الرقعة'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (state.mode == 'setup')
-                SetupPanel(
-                  state: state,
-                  pieceTheme: pTheme,
-                  selectedPiece: selectedSetupPiece,
-                  eraseMode: eraseMode,
-                  onSelectPiece: (p) => setState(() {
-                    selectedSetupPiece = p;
-                    eraseMode = false;
-                  }),
-                  onToggleErase: () => setState(() {
-                    eraseMode = !eraseMode;
-                    selectedSetupPiece = null;
-                  }),
-                  onChanged: () {},
-                ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('FEN', style: TextStyle(fontWeight: FontWeight.bold)),
-                      SelectableText(state.currentFen,
-                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: fenController,
-                        decoration: InputDecoration(
-                          labelText: 'الصق FEN هنا',
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.download),
-                            onPressed: () {
-                              if (!state.loadFen(fenController.text)) {
-                                ScaffoldMessenger.of(context)
-                                    .showSnackBar(const SnackBar(content: Text('FEN غير صالح')));
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              MoveListPanel(history: state.history),
-              const SizedBox(height: 12),
-              AnalysisPanel(
-                engineStatus: engineStatus,
-                engineReady: engineReady,
-                analyzing: engine.analyzing,
-                depth: depth,
-                multiPv: multiPv,
-                lines: pvLines,
-                onAnalyze: _analyze,
-                onStop: () => engine.stop(),
-                onDepthChanged: (d) => setState(() => depth = d),
-                onMultiPvChanged: (m) => setState(() => multiPv = m),
-                onSelectLine: (_) {},
+                history:
+                    state.history,
               ),
             ],
           ),
