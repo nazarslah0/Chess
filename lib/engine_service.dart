@@ -1,8 +1,13 @@
 import 'dart:async';
 
-import 'package:stockfish_chess_engine/stockfish_chess_engine.dart';
+import 'package:flutter/services.dart';
 
-/// سطر واحد من MultiPV صادر مباشرة من Stockfish.
+/// نتيجة سطر واحد من MultiPV صادر من Stockfish.
+///
+/// مثال:
+/// depth 18
+/// eval +0.42
+/// pv e2e4 e7e5 g1f3 ...
 class PvLine {
   final int depth;
   final double evalPawns;
@@ -18,85 +23,178 @@ class PvLine {
 }
 
 class EngineService {
-  Stockfish? _sf;
-  StreamSubscription<String>? _sub;
+  // ============================================================
+  // Android channels
+  // ============================================================
+
+  static const MethodChannel _methodChannel =
+      MethodChannel('chess_analyzer/stockfish');
+
+  static const EventChannel _eventChannel =
+      EventChannel('chess_analyzer/stockfish/output');
+
+  // ============================================================
+  // State
+  // ============================================================
+
+  StreamSubscription<dynamic>? _outputSubscription;
 
   bool ready = false;
   bool analyzing = false;
+
+  bool _starting = false;
+  bool _disposed = false;
 
   String _analyzedFen = '';
 
   int _analysisId = 0;
   int _activeAnalysisId = 0;
 
-  bool _waitingForReady = false;
-
   int _requestedDepth = 18;
   int _requestedMultiPv = 3;
 
+  // ============================================================
+  // Callbacks
+  // ============================================================
+
   void Function(String status)? onStatus;
+
   void Function(int multipv, PvLine line)? onInfo;
+
   void Function(String bestUci)? onBestMove;
 
-  // ------------------------------------------------------------
-  // تشغيل Stockfish
-  // ------------------------------------------------------------
+  // ============================================================
+  // Initialization
+  // ============================================================
 
   Future<void> init() async {
-    onStatus?.call('🟡 جاري تشغيل Stockfish...');
+    if (_disposed) {
+      return;
+    }
+
+    if (ready) {
+      onStatus?.call('🟢 Stockfish جاهز');
+      return;
+    }
+
+    if (_starting) {
+      return;
+    }
+
+    _starting = true;
+
+    onStatus?.call('🟡 جاري تشغيل Stockfish 19...');
 
     try {
-      final sf = Stockfish();
+      await _outputSubscription?.cancel();
 
-      _sf = sf;
-
-      _sub = sf.stdout.listen(
-        _handleLine,
-        onError: (error) {
+      _outputSubscription = _eventChannel
+          .receiveBroadcastStream()
+          .listen(
+        _handleNativeOutput,
+        onError: (Object error) {
           ready = false;
           analyzing = false;
-          onStatus?.call('🔴 خطأ في محرك Stockfish: $error');
+          _starting = false;
+
+          onStatus?.call(
+            '🔴 خطأ في اتصال Stockfish: $error',
+          );
         },
+        onDone: () {
+          if (!_disposed) {
+            ready = false;
+            analyzing = false;
+
+            onStatus?.call(
+              '🟡 تم إغلاق Stockfish',
+            );
+          }
+        },
+        cancelOnError: false,
       );
 
+      final started =
+          await _methodChannel.invokeMethod<bool>('start') ?? false;
+
+      if (!started) {
+        ready = false;
+        _starting = false;
+
+        onStatus?.call(
+          '🔴 فشل تشغيل Stockfish 19',
+        );
+
+        return;
+      }
+
+      // إعطاء الجسر وقتًا لفتح العملية.
       await Future.delayed(
-        const Duration(milliseconds: 400),
+        const Duration(milliseconds: 100),
       );
 
-      _send('uci');
+      await _send('uci');
+
+      _starting = false;
     } catch (e) {
       ready = false;
       analyzing = false;
+      _starting = false;
 
       onStatus?.call(
-        '🔴 فشل تشغيل Stockfish: $e',
+        '🔴 فشل تشغيل Stockfish 19: $e',
       );
     }
   }
 
-  // ------------------------------------------------------------
-  // إرسال أمر إلى Stockfish
-  // ------------------------------------------------------------
+  // ============================================================
+  // Native output
+  // ============================================================
 
-  void _send(String command) {
-    final sf = _sf;
+  void _handleNativeOutput(dynamic value) {
+    if (_disposed) {
+      return;
+    }
 
-    if (sf == null) {
+    if (value == null) {
+      return;
+    }
+
+    final line = value.toString().trim();
+
+    if (line.isEmpty) {
+      return;
+    }
+
+    _handleLine(line);
+  }
+
+  // ============================================================
+  // Send command to Stockfish
+  // ============================================================
+
+  Future<void> _send(String command) async {
+    if (_disposed) {
       return;
     }
 
     try {
-      sf.stdin = command;
+      await _methodChannel.invokeMethod<void>(
+        'send',
+        <String, dynamic>{
+          'command': command,
+        },
+      );
     } catch (e) {
       onStatus?.call(
-        '🔴 فشل إرسال أمر للمحرك: $e',
+        '🔴 فشل إرسال أمر Stockfish: $e',
       );
     }
   }
 
-  // ------------------------------------------------------------
-  // استقبال UCI
-  // ------------------------------------------------------------
+  // ============================================================
+  // Stockfish output parser
+  // ============================================================
 
   void _handleLine(String raw) {
     final line = raw.trim();
@@ -105,83 +203,109 @@ class EngineService {
       return;
     }
 
-    // بداية بروتوكول UCI
-    if (line == 'uciok') {
-      _send('isready');
-      return;
-    }
+    // ----------------------------------------------------------
+    // UCI identification
+    // ----------------------------------------------------------
 
-    // Stockfish أصبح جاهزًا.
-    if (line == 'readyok') {
-      ready = true;
-
-      onStatus?.call(
-        '🟢 Stockfish جاهز',
-      );
-
-      // إذا كان لدينا تحليل ينتظر الجاهزية،
-      // نبدأه الآن من الـFEN الصحيح.
-      if (_waitingForReady) {
-        _waitingForReady = false;
-
-        _send(
-          'setoption name MultiPV value $_requestedMultiPv',
-        );
-
-        _send(
-          'position fen $_analyzedFen',
-        );
-
-        _send(
-          'go depth $_requestedDepth',
-        );
-
-        onStatus?.call(
-          '🔵 جاري تحليل الوضعية...',
-        );
+    if (line.startsWith('id ') ||
+        line.startsWith('option ') ||
+        line == 'uciok') {
+      if (line == 'uciok') {
+        _onUciReady();
       }
 
       return;
     }
 
-    // معلومات التحليل.
-    if (line.startsWith('info')) {
+    // ----------------------------------------------------------
+    // Ready
+    // ----------------------------------------------------------
+
+    if (line == 'readyok') {
+      ready = true;
+      _starting = false;
+
+      onStatus?.call(
+        '🟢 Stockfish 19 جاهز',
+      );
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // Analysis info
+    // ----------------------------------------------------------
+
+    if (line.startsWith('info ')) {
       if (!analyzing) {
         return;
       }
 
       _parseInfo(line);
+
       return;
     }
 
-    // أفضل نقلة.
-    if (line.startsWith('bestmove')) {
-      // إذا كنا ننتظر readyok فلا نسمح لـbestmove
-      // قديم بإلغاء التحليل الجديد.
-      if (_waitingForReady) {
-        return;
-      }
+    // ----------------------------------------------------------
+    // Best move
+    // ----------------------------------------------------------
 
-      if (!analyzing) {
-        return;
-      }
-
-      final parts = line.split(RegExp(r'\s+'));
-
-      final bestMove =
-          parts.length > 1 ? parts[1] : '';
-
-      analyzing = false;
-
-      onBestMove?.call(bestMove);
-
+    if (line.startsWith('bestmove ')) {
+      _handleBestMove(line);
       return;
     }
   }
 
-  // ------------------------------------------------------------
-  // تحليل info
-  // ------------------------------------------------------------
+  void _onUciReady() {
+    onStatus?.call(
+      '🟡 Stockfish 19 متصل...',
+    );
+
+    // التأكد من أن المحرك جاهز.
+    _send('isready');
+  }
+
+  // ============================================================
+  // Parse bestmove
+  // ============================================================
+
+  void _handleBestMove(String line) {
+    final parts = line.split(RegExp(r'\s+'));
+
+    final bestMove =
+        parts.length >= 2 ? parts[1].trim() : '';
+
+    if (bestMove.isEmpty ||
+        bestMove == '(none)') {
+      analyzing = false;
+
+      onStatus?.call(
+        '🟡 لا توجد نقلة',
+      );
+
+      return;
+    }
+
+    final currentId = _analysisId;
+
+    // إذا كان التحليل قد تغير أثناء وصول bestmove
+    // فلا نعرض النتيجة القديمة.
+    if (_activeAnalysisId != currentId) {
+      return;
+    }
+
+    analyzing = false;
+
+    onBestMove?.call(bestMove);
+
+    onStatus?.call(
+      '🟢 اكتمل التحليل',
+    );
+  }
+
+  // ============================================================
+  // Parse Stockfish info
+  // ============================================================
 
   void _parseInfo(String line) {
     final parts = line.split(RegExp(r'\s+'));
@@ -190,34 +314,49 @@ class EngineService {
     int multipv = 1;
 
     String? scoreType;
-    int? scoreVal;
+    int? scoreValue;
 
-    final List<String> pv = [];
+    final List<String> pv = <String>[];
 
     for (int i = 0; i < parts.length; i++) {
       final part = parts[i];
 
-      if (part == 'depth' && i + 1 < parts.length) {
-        depth = int.tryParse(parts[i + 1]);
+      // depth
+      if (part == 'depth' &&
+          i + 1 < parts.length) {
+        depth = int.tryParse(
+          parts[i + 1],
+        );
       }
 
-      if (part == 'multipv' && i + 1 < parts.length) {
+      // multipv
+      if (part == 'multipv' &&
+          i + 1 < parts.length) {
         multipv =
             int.tryParse(parts[i + 1]) ?? 1;
       }
 
-      if (part == 'score' && i + 2 < parts.length) {
-        scoreType = parts[i + 1];
-        scoreVal =
-            int.tryParse(parts[i + 2]);
+      // score cp / mate
+      if (part == 'score' &&
+          i + 2 < parts.length) {
+        final type = parts[i + 1];
+        final value = int.tryParse(
+          parts[i + 2],
+        );
+
+        if (type == 'cp' ||
+            type == 'mate') {
+          scoreType = type;
+          scoreValue = value;
+        }
       }
 
-      if (part == 'pv') {
-        if (i + 1 < parts.length) {
-          pv.addAll(
-            parts.sublist(i + 1),
-          );
-        }
+      // principal variation
+      if (part == 'pv' &&
+          i + 1 < parts.length) {
+        pv.addAll(
+          parts.sublist(i + 1),
+        );
 
         break;
       }
@@ -227,7 +366,8 @@ class EngineService {
       return;
     }
 
-    if (scoreType == null || scoreVal == null) {
+    if (scoreType == null ||
+        scoreValue == null) {
       return;
     }
 
@@ -235,76 +375,123 @@ class EngineService {
       return;
     }
 
-    final fenParts =
-        _analyzedFen.split(RegExp(r'\s+'));
+    // ----------------------------------------------------------
+    // Ignore old analysis
+    // ----------------------------------------------------------
 
-    final turn =
+    final currentId = _analysisId;
+
+    if (_activeAnalysisId != currentId) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // Determine side to move
+    // ----------------------------------------------------------
+
+    final fenParts =
+        _analyzedFen.trim().split(
+              RegExp(r'\s+'),
+            );
+
+    final sideToMove =
         fenParts.length > 1
             ? fenParts[1]
             : 'w';
 
+    // Stockfish cp/mate is from the side to move.
+    //
+    // We convert it to White's perspective:
+    //
+    // White to move:
+    //     +0.50 = White advantage
+    //
+    // Black to move:
+    //     +0.50 from Stockfish = Black advantage
+    //     therefore White perspective = -0.50
+    //
     final sign =
-        turn == 'w' ? 1 : -1;
+        sideToMove == 'w' ? 1 : -1;
 
     double evalPawns;
-    String label;
+    String evalLabel;
+
+    // ----------------------------------------------------------
+    // Mate
+    // ----------------------------------------------------------
 
     if (scoreType == 'mate') {
-      final mateForSideToMove =
-          scoreVal * sign > 0;
+      final mate =
+          scoreValue * sign;
 
-      if (mateForSideToMove) {
-        label =
-            'M${scoreVal.abs()}';
+      if (mate > 0) {
+        evalLabel =
+            'M${mate.abs()}';
+
         evalPawns = 100.0;
       } else {
-        label =
-            'M-${scoreVal.abs()}';
+        evalLabel =
+            'M-${mate.abs()}';
+
         evalPawns = -100.0;
       }
-    } else {
+    }
+
+    // ----------------------------------------------------------
+    // Centipawn evaluation
+    // ----------------------------------------------------------
+
+    else if (scoreType == 'cp') {
       final cp =
-          scoreVal * sign;
+          scoreValue * sign;
 
       evalPawns =
           cp / 100.0;
 
-      label =
+      evalLabel =
           '${evalPawns >= 0 ? '+' : ''}'
           '${evalPawns.toStringAsFixed(2)}';
     }
 
-    // منع إرسال نتيجة من تحليل قديم.
-    if (_activeAnalysisId != _analysisId) {
+    // Unknown score
+    else {
       return;
     }
+
+    // ----------------------------------------------------------
+    // Send result to UI
+    // ----------------------------------------------------------
 
     onInfo?.call(
       multipv,
       PvLine(
         depth: depth,
         evalPawns: evalPawns,
-        evalLabel: label,
-        uciMoves: List<String>.unmodifiable(pv),
+        evalLabel: evalLabel,
+        uciMoves:
+            List<String>.unmodifiable(
+          pv,
+        ),
       ),
     );
   }
 
-  // ------------------------------------------------------------
-  // بدء تحليل FEN
-  // ------------------------------------------------------------
+  // ============================================================
+  // Analyze position
+  // ============================================================
 
-  void analyze(
+  Future<void> analyze(
     String fen, {
     required int depth,
     required int multiPv,
-  }) {
+  }) async {
     final cleanFen = fen.trim();
 
     if (cleanFen.isEmpty) {
       onStatus?.call(
         '🔴 FEN فارغ',
       );
+
       return;
     }
 
@@ -312,52 +499,91 @@ class EngineService {
       onStatus?.call(
         '🟡 Stockfish لم يصبح جاهزًا بعد',
       );
-      return;
+
+      // محاولة تشغيله تلقائيًا.
+      await init();
+
+      if (!ready) {
+        return;
+      }
     }
 
-    // رقم جديد للتحليل.
-    _analysisId++;
-    _activeAnalysisId = _analysisId;
+    // ----------------------------------------------------------
+    // New analysis ID
+    // ----------------------------------------------------------
 
-    _requestedDepth = depth.clamp(1, 60);
+    _analysisId++;
+
+    _activeAnalysisId =
+        _analysisId;
+
+    _requestedDepth =
+        depth.clamp(1, 60);
+
     _requestedMultiPv =
         multiPv.clamp(1, 10);
 
-    _analyzedFen = cleanFen;
+    _analyzedFen =
+        cleanFen;
 
-    // إذا كان هناك تحليل سابق، أوقفه أولًا.
+    // ----------------------------------------------------------
+    // Stop previous analysis
+    // ----------------------------------------------------------
+
     if (analyzing) {
-      _send('stop');
+      await _send('stop');
+
+      // وقت صغير حتى يعالج Stockfish stop.
+      await Future.delayed(
+        const Duration(milliseconds: 30),
+      );
     }
+
+    // ----------------------------------------------------------
+    // Start new analysis
+    // ----------------------------------------------------------
 
     analyzing = true;
 
-    // مهم جدًا عند تحليل FEN خاص:
-    // نبدأ لعبة UCI جديدة حتى لا يحتفظ Stockfish
-    // بحالة البحث السابقة.
-    _send('ucinewgame');
+    onStatus?.call(
+      '🔵 جاري تحليل الوضعية...',
+    );
 
-    // انتظر readyok قبل position/go.
-    _waitingForReady = true;
+    // مهم جدًا للوضعيات الخاصة:
+    // نبدأ لعبة UCI جديدة ثم نرسل FEN كامل.
+    await _send('ucinewgame');
 
-    _send('isready');
+    await _send('setoption name MultiPV value $_requestedMultiPv');
+
+    await _send('isready');
+
+    await _send(
+      'position fen $_analyzedFen',
+    );
+
+    await _send(
+      'go depth $_requestedDepth',
+    );
   }
 
-  // ------------------------------------------------------------
-  // إيقاف التحليل
-  // ------------------------------------------------------------
+  // ============================================================
+  // Stop analysis
+  // ============================================================
 
-  void stop() {
+  Future<void> stop() async {
     if (!analyzing) {
       return;
     }
 
+    // إبطال نتائج التحليل السابق.
     _analysisId++;
-    _activeAnalysisId = _analysisId;
 
-    _waitingForReady = false;
+    _activeAnalysisId =
+        _analysisId;
 
-    _send('stop');
+    try {
+      await _send('stop');
+    } catch (_) {}
 
     analyzing = false;
 
@@ -366,154 +592,38 @@ class EngineService {
     );
   }
 
-  // ------------------------------------------------------------
-  // تنظيف
-  // ------------------------------------------------------------
+  // ============================================================
+  // Dispose
+  // ============================================================
 
-  void dispose() {
+  Future<void> dispose() async {
+    if (_disposed) {
+      return;
+    }
+
+    _disposed = true;
+
     _analysisId++;
-    _activeAnalysisId = _analysisId;
 
-    _waitingForReady = false;
+    _activeAnalysisId =
+        _analysisId;
+
     analyzing = false;
     ready = false;
-
-    _sub?.cancel();
-    _sub = null;
+    _starting = false;
 
     try {
-      _sf?.dispose();
+      await _methodChannel.invokeMethod<void>(
+        'dispose',
+      );
     } catch (_) {}
 
-    _sf = null;
-  }
-}
-import 'dart:async';
-import 'package:stockfish_chess_engine/stockfish_chess_engine.dart';
+    await _outputSubscription?.cancel();
 
-/// One MultiPV line reported by the real Stockfish engine (never fabricated).
-class PvLine {
-  final int depth;
-  final double evalPawns;
-  final String evalLabel;
-  final List<String> uciMoves; // raw UCI moves, e.g. e2e4, e7e8q
-  const PvLine({
-    required this.depth,
-    required this.evalPawns,
-    required this.evalLabel,
-    required this.uciMoves,
-  });
-}
+    _outputSubscription = null;
 
-class EngineService {
-  Stockfish? _sf;
-  StreamSubscription<String>? _sub;
-  bool ready = false;
-  bool analyzing = false;
-  String _analyzedFen = '';
-
-  void Function(String status)? onStatus;
-  void Function(int multipv, PvLine line)? onInfo;
-  void Function(String bestUci)? onBestMove;
-
-  Future<void> init() async {
-    onStatus?.call('🟡 جاري تشغيل Stockfish...');
-    try {
-      _sf = Stockfish();
-      _sub = _sf!.stdout.listen(_handleLine);
-      // Give the native isolate a moment to spin up before the handshake.
-      await Future.delayed(const Duration(milliseconds: 400));
-      _send('uci');
-    } catch (e) {
-      onStatus?.call('🔴 فشل تشغيل Stockfish: $e');
-    }
-  }
-
-  void _send(String cmd) {
-    _sf?.stdin = cmd;
-  }
-
-  void _handleLine(String raw) {
-    final line = raw.trim();
-    if (line == 'uciok') {
-      _send('isready');
-      return;
-    }
-    if (line == 'readyok') {
-      ready = true;
-      onStatus?.call('🟢 Stockfish جاهز (Stockfish 17، NNUE حقيقي)');
-      return;
-    }
-    if (line.startsWith('info') && analyzing) {
-      _parseInfo(line);
-      return;
-    }
-    if (line.startsWith('bestmove')) {
-      if (!analyzing) return;
-      analyzing = false;
-      final parts = line.split(' ');
-      onBestMove?.call(parts.length > 1 ? parts[1] : '');
-      return;
-    }
-  }
-
-  void _parseInfo(String line) {
-    final parts = line.split(' ');
-    int? depth;
-    int multipv = 1;
-    String? scoreType;
-    int? scoreVal;
-    List<String> pv = [];
-    for (int i = 0; i < parts.length; i++) {
-      if (parts[i] == 'depth') depth = int.tryParse(parts[i + 1]);
-      if (parts[i] == 'multipv') multipv = int.tryParse(parts[i + 1]) ?? 1;
-      if (parts[i] == 'score') {
-        scoreType = parts[i + 1];
-        scoreVal = int.tryParse(parts[i + 2]);
-      }
-      if (parts[i] == 'pv') {
-        pv = parts.sublist(i + 1);
-        break;
-      }
-    }
-    if (depth == null || pv.isEmpty || scoreVal == null) return;
-    final fenParts = _analyzedFen.split(' ');
-    final turn = fenParts.length > 1 ? fenParts[1] : 'w';
-    final sign = turn == 'w' ? 1 : -1;
-    double evalPawns;
-    String label;
-    if (scoreType == 'mate') {
-      final favor = scoreVal * sign > 0;
-      label = favor ? 'M${scoreVal.abs()}' : 'M-${scoreVal.abs()}';
-      evalPawns = favor ? 100 : -100;
-    } else {
-      final cp = scoreVal * sign;
-      evalPawns = cp / 100;
-      label = (evalPawns >= 0 ? '+' : '') + evalPawns.toStringAsFixed(2);
-    }
-    onInfo?.call(
-      multipv,
-      PvLine(depth: depth, evalPawns: evalPawns, evalLabel: label, uciMoves: pv),
-    );
-  }
-
-  /// depth has NO fixed ceiling of 30: caller may pass up to [maxDepth]
-  /// (the UI exposes a slider from 1 to 60).
-  void analyze(String fen, {required int depth, required int multiPv}) {
-    if (!ready) return;
-    analyzing = true;
-    _analyzedFen = fen;
-    _send('setoption name MultiPV value $multiPv');
-    _send('position fen $fen');
-    _send('go depth $depth');
-  }
-
-  void stop() {
-    if (analyzing) _send('stop');
-  }
-
-  void dispose() {
-    _sub?.cancel();
-    _sf?.dispose();
+    onStatus = null;
+    onInfo = null;
+    onBestMove = null;
   }
 }
