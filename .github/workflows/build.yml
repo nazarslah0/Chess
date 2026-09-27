@@ -28,6 +28,21 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # The `stockfish` package's own bundled android/build.gradle still
+      # calls the removed jcenter() Gradle repository method, which fails
+      # to even parse on the Gradle/AGP version this Flutter release ships.
+      # This is a known incompatibility in that package's Android build
+      # script (not our Dart code) — patch it in place after fetching it.
+      - name: Patch legacy jcenter() in stockfish package
+        run: |
+          FILE=$(find "$HOME/.pub-cache" -path "*/stockfish-*/android/build.gradle" | head -n1)
+          if [ -n "$FILE" ]; then
+            sed -i 's/jcenter()/mavenCentral()/g' "$FILE"
+            echo "Patched: $FILE"
+          else
+            echo "::warning::stockfish android/build.gradle not found in pub-cache; skipping patch"
+          fi
+
       - name: Static analysis (non-blocking)
         run: flutter analyze || true
 
