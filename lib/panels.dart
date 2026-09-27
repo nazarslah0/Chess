@@ -7,7 +7,11 @@ class SetupPanel extends StatefulWidget {
   final PieceTheme pieceTheme;
   final String? selectedPiece;
   final bool eraseMode;
-  final void Function(String? colorType) onSelectPiece;
+
+  // مهم:
+  // main.dart يرسل void Function(String)
+  final void Function(String) onSelectPiece;
+
   final VoidCallback onToggleErase;
   final VoidCallback onChanged;
 
@@ -32,6 +36,7 @@ class _SetupPanelState extends State<SetupPanel> {
   @override
   void initState() {
     super.initState();
+
     _epController = TextEditingController(
       text: widget.state.ep == '-' ? '' : widget.state.ep,
     );
@@ -47,8 +52,10 @@ class _SetupPanelState extends State<SetupPanel> {
   void didUpdateWidget(covariant SetupPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    final newValue = widget.state.ep == '-' ? '' : widget.state.ep;
+    final newValue =
+        widget.state.ep == '-' ? '' : widget.state.ep;
 
+    // لا نغير النص أثناء قيام المستخدم بالكتابة.
     if (_epController.text != newValue &&
         !_epController.selection.isValid) {
       _epController.text = newValue;
@@ -57,13 +64,21 @@ class _SetupPanelState extends State<SetupPanel> {
 
   @override
   Widget build(BuildContext context) {
-    const order = ['K', 'Q', 'R', 'B', 'N', 'P'];
+    const pieceOrder = [
+      'K',
+      'Q',
+      'R',
+      'B',
+      'N',
+      'P',
+    ];
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
             const Text(
               'إعداد الوضعية',
@@ -75,50 +90,88 @@ class _SetupPanelState extends State<SetupPanel> {
 
             const SizedBox(height: 10),
 
+            // =====================================================
             // قطع الأبيض والأسود
+            // =====================================================
+
             for (final color in ['w', 'b'])
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding:
+                    const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
-                    for (final type in order)
+                    for (final type in pieceOrder)
                       Expanded(
                         child: GestureDetector(
+                          behavior:
+                              HitTestBehavior.opaque,
                           onTap: () {
-                            widget.onSelectPiece('$color$type');
+                            widget.onSelectPiece(
+                              '$color$type',
+                            );
                           },
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            margin:
+                                const EdgeInsets.symmetric(
+                              horizontal: 2,
+                            ),
                             height: 46,
-                            decoration: BoxDecoration(
+                            decoration:
+                                BoxDecoration(
                               border: Border.all(
                                 color:
-                                    widget.selectedPiece == '$color$type'
+                                    widget.selectedPiece ==
+                                            '$color$type'
                                         ? Theme.of(context)
                                             .colorScheme
                                             .primary
-                                        : Colors.grey.shade400,
+                                        : Colors
+                                            .grey
+                                            .shade400,
                                 width:
-                                    widget.selectedPiece == '$color$type'
+                                    widget.selectedPiece ==
+                                            '$color$type'
                                         ? 2
                                         : 1,
                               ),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius:
+                                  BorderRadius.circular(6),
                             ),
                             child: SizedBox.expand(
-                              child: widget.pieceTheme.assetFolder != null
+                              child: widget.pieceTheme
+                                          .assetFolder !=
+                                      null
                                   ? Image.asset(
-                                      widget.pieceTheme.assetPath(
+                                      widget.pieceTheme
+                                          .assetPath(
                                         color,
                                         type,
                                       ),
                                       fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (
+                                        context,
+                                        error,
+                                        stackTrace,
+                                      ) {
+                                        return CustomPaint(
+                                          painter:
+                                              PiecePainter(
+                                            type,
+                                            color,
+                                            widget
+                                                .pieceTheme,
+                                          ),
+                                        );
+                                      },
                                     )
                                   : CustomPaint(
-                                      painter: PiecePainter(
+                                      painter:
+                                          PiecePainter(
                                         type,
                                         color,
-                                        widget.pieceTheme,
+                                        widget
+                                            .pieceTheme,
                                       ),
                                     ),
                             ),
@@ -131,19 +184,26 @@ class _SetupPanelState extends State<SetupPanel> {
 
             const SizedBox(height: 4),
 
+            // =====================================================
             // أداة المسح
+            // =====================================================
+
             Wrap(
               spacing: 8,
               children: [
                 FilledButton.tonal(
-                  onPressed: widget.onToggleErase,
+                  onPressed:
+                      widget.onToggleErase,
                   style: widget.eraseMode
                       ? FilledButton.styleFrom(
-                          backgroundColor: Colors.red.shade100,
+                          backgroundColor:
+                              Colors.red.shade100,
                         )
                       : null,
                   child: Text(
-                    widget.eraseMode ? 'المسح مفعل' : 'أداة المسح',
+                    widget.eraseMode
+                        ? 'المسح مفعل'
+                        : 'أداة المسح',
                   ),
                 ),
               ],
@@ -151,13 +211,19 @@ class _SetupPanelState extends State<SetupPanel> {
 
             const SizedBox(height: 12),
 
+            // =====================================================
             // الدور
+            // =====================================================
+
             Row(
               children: [
                 const Text('الدور: '),
+
                 const SizedBox(width: 6),
+
                 DropdownButton<String>(
-                  value: widget.state.setupTurn,
+                  value:
+                      widget.state.setupTurn,
                   items: const [
                     DropdownMenuItem(
                       value: 'w',
@@ -169,7 +235,9 @@ class _SetupPanelState extends State<SetupPanel> {
                     ),
                   ],
                   onChanged: (value) {
-                    widget.state.setupTurn = value ?? 'w';
+                    widget.state.setupTurn =
+                        value ?? 'w';
+
                     widget.state.refresh();
                     widget.onChanged();
                   },
@@ -179,61 +247,76 @@ class _SetupPanelState extends State<SetupPanel> {
 
             const SizedBox(height: 4),
 
+            // =====================================================
             // التبييت
+            // =====================================================
+
             const Text(
               'التبييت:',
-              style: TextStyle(fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
             ),
 
-            const SizedBox(height: 4),
+            const SizedBox(height: 5),
 
             Wrap(
               spacing: 6,
               runSpacing: 4,
               children: [
                 _castleCheck(
-                  context,
                   'K',
                   widget.state.ck,
-                  (v) => widget.state.ck = v,
+                  (value) =>
+                      widget.state.ck = value,
                 ),
                 _castleCheck(
-                  context,
                   'Q',
                   widget.state.cq,
-                  (v) => widget.state.cq = v,
+                  (value) =>
+                      widget.state.cq = value,
                 ),
                 _castleCheck(
-                  context,
                   'k',
                   widget.state.ckb,
-                  (v) => widget.state.ckb = v,
+                  (value) =>
+                      widget.state.ckb = value,
                 ),
                 _castleCheck(
-                  context,
                   'q',
                   widget.state.cqb,
-                  (v) => widget.state.cqb = v,
+                  (value) =>
+                      widget.state.cqb = value,
                 ),
               ],
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
+            // =====================================================
             // En Passant
+            // =====================================================
+
             TextField(
               controller: _epController,
               textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(
+              keyboardType:
+                  TextInputType.text,
+              decoration:
+                  const InputDecoration(
                 labelText: 'En Passant',
                 hintText: 'e3 أو -',
-                border: OutlineInputBorder(),
+                border:
+                    OutlineInputBorder(),
                 isDense: true,
               ),
               onChanged: (value) {
-                final v = value.trim();
+                final text =
+                    value.trim();
 
-                widget.state.ep = v.isEmpty ? '-' : v;
+                widget.state.ep =
+                    text.isEmpty ? '-' : text;
+
                 widget.state.refresh();
                 widget.onChanged();
               },
@@ -241,7 +324,10 @@ class _SetupPanelState extends State<SetupPanel> {
 
             const SizedBox(height: 8),
 
+            // =====================================================
             // حالة الوضعية
+            // =====================================================
+
             Text(
               widget.state.legalMessage,
               style: TextStyle(
@@ -258,16 +344,16 @@ class _SetupPanelState extends State<SetupPanel> {
   }
 
   Widget _castleCheck(
-    BuildContext context,
     String label,
     bool value,
-    void Function(bool) set,
+    void Function(bool) setValue,
   ) {
     return FilterChip(
       label: Text(label),
       selected: value,
-      onSelected: (v) {
-        set(v);
+      onSelected: (selected) {
+        setValue(selected);
+
         widget.state.refresh();
         widget.onChanged();
       },
@@ -277,19 +363,22 @@ class _SetupPanelState extends State<SetupPanel> {
 
 
 // ============================================================
-// لوحة تحليل Stockfish
+// لوحة تحليل Stockfish 19
 // ============================================================
 
 class AnalysisPanel extends StatelessWidget {
   final String engineStatus;
   final bool engineReady;
   final bool analyzing;
+
   final int depth;
   final int multiPv;
+
   final Map<int, PvLineDisplay> lines;
 
   final VoidCallback onAnalyze;
   final VoidCallback onStop;
+
   final void Function(int) onDepthChanged;
   final void Function(int) onMultiPvChanged;
   final void Function(int multipv) onSelectLine;
@@ -311,15 +400,27 @@ class AnalysisPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final top = lines[1];
+    final topLine = lines[1];
 
-    final sortedKeys = lines.keys.toList()..sort();
+    final sortedKeys =
+        lines.keys.toList()..sort();
+
+    final safeDepth =
+        depth.clamp(1, 60);
+
+    final safeMultiPv =
+        [1, 2, 3, 4, 5]
+                .contains(multiPv)
+            ? multiPv
+            : 3;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding:
+            const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
             const Text(
               'تحليل Stockfish 19',
@@ -331,6 +432,7 @@ class AnalysisPanel extends StatelessWidget {
 
             const SizedBox(height: 6),
 
+            // حالة المحرك
             Text(
               engineStatus,
               style: TextStyle(
@@ -343,33 +445,39 @@ class AnalysisPanel extends StatelessWidget {
 
             const SizedBox(height: 10),
 
+            // ===================================================
             // العمق
+            // ===================================================
+
             Row(
               children: [
-                const Text('العمق: '),
+                const Text('العمق:'),
 
                 Expanded(
                   child: Slider(
                     min: 1,
                     max: 60,
                     divisions: 59,
-                    value: depth
-                        .clamp(1, 60)
-                        .toDouble(),
-                    label: '$depth',
+                    value:
+                        safeDepth.toDouble(),
+                    label:
+                        '$safeDepth',
                     onChanged: analyzing
                         ? null
                         : (value) {
-                            onDepthChanged(value.round());
+                            onDepthChanged(
+                              value.round(),
+                            );
                           },
                   ),
                 ),
 
                 SizedBox(
-                  width: 30,
+                  width: 32,
                   child: Text(
-                    '$depth',
-                    textAlign: TextAlign.center,
+                    '$safeDepth',
+                    textAlign:
+                        TextAlign.center,
                   ),
                 ),
               ],
@@ -377,17 +485,20 @@ class AnalysisPanel extends StatelessWidget {
 
             const SizedBox(height: 4),
 
+            // ===================================================
             // MultiPV
+            // ===================================================
+
             Row(
               children: [
-                const Text('عدد أفضل النقلات: '),
+                const Text(
+                  'عدد أفضل النقلات:',
+                ),
 
                 const SizedBox(width: 8),
 
                 DropdownButton<int>(
-                  value: [1, 2, 3, 4, 5].contains(multiPv)
-                      ? multiPv
-                      : 3,
+                  value: safeMultiPv,
                   items: const [
                     DropdownMenuItem(
                       value: 1,
@@ -413,7 +524,9 @@ class AnalysisPanel extends StatelessWidget {
                   onChanged: analyzing
                       ? null
                       : (value) {
-                          onMultiPvChanged(value ?? 3);
+                          onMultiPvChanged(
+                            value ?? 3,
+                          );
                         },
                 ),
               ],
@@ -421,28 +534,43 @@ class AnalysisPanel extends StatelessWidget {
 
             const SizedBox(height: 8),
 
+            // ===================================================
             // أزرار التحليل
+            // ===================================================
+
             Row(
               children: [
                 Expanded(
-                  child: FilledButton.icon(
+                  child:
+                      FilledButton.icon(
                     onPressed:
-                        engineReady && !analyzing
+                        engineReady &&
+                                !analyzing
                             ? onAnalyze
                             : null,
-                    icon: const Icon(Icons.analytics),
-                    label: const Text('تحليل الوضعية'),
+                    icon: const Icon(
+                      Icons.analytics,
+                    ),
+                    label: const Text(
+                      'تحليل الوضعية',
+                    ),
                   ),
                 ),
 
                 const SizedBox(width: 8),
 
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        analyzing ? onStop : null,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('إيقاف'),
+                  child:
+                      OutlinedButton.icon(
+                    onPressed: analyzing
+                        ? onStop
+                        : null,
+                    icon: const Icon(
+                      Icons.stop,
+                    ),
+                    label: const Text(
+                      'إيقاف',
+                    ),
                   ),
                 ),
               ],
@@ -450,45 +578,64 @@ class AnalysisPanel extends StatelessWidget {
 
             const SizedBox(height: 12),
 
+            // ===================================================
             // التقييم الرئيسي
-            if (top != null) ...[
+            // ===================================================
+
+            if (topLine != null) ...[
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
+                width:
+                    double.infinity,
+                padding:
+                    const EdgeInsets.all(10),
+                decoration:
+                    BoxDecoration(
+                  borderRadius:
+                      BorderRadius.circular(8),
                   color: Theme.of(context)
                       .colorScheme
                       .surfaceContainerHighest,
                 ),
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     Text(
-                      'التقييم: ${top.evalLabel}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
+                      'التقييم: '
+                      '${topLine.evalLabel}',
+                      style:
+                          const TextStyle(
+                        fontWeight:
+                            FontWeight.bold,
                         fontSize: 17,
                       ),
                     ),
 
-                    const SizedBox(height: 3),
+                    const SizedBox(
+                      height: 3,
+                    ),
 
                     Text(
-                      'العمق: ${top.depth}',
-                      style: const TextStyle(
+                      'العمق: '
+                      '${topLine.depth}',
+                      style:
+                          const TextStyle(
                         fontSize: 13,
                       ),
                     ),
 
-                    const SizedBox(height: 3),
+                    const SizedBox(
+                      height: 3,
+                    ),
 
                     Text(
                       'أفضل نقلة: '
-                      '${top.moves.isNotEmpty ? top.moves.first : '—'}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
+                      '${topLine.moves.isNotEmpty ? topLine.moves.first : '—'}',
+                      style:
+                          const TextStyle(
+                        fontWeight:
+                            FontWeight.w600,
                         fontSize: 14,
                       ),
                     ),
@@ -499,10 +646,15 @@ class AnalysisPanel extends StatelessWidget {
               const SizedBox(height: 12),
             ],
 
+            // ===================================================
+            // MultiPV النتائج
+            // ===================================================
+
             Text(
-              'أفضل $multiPv نقلات',
+              'أفضل $safeMultiPv نقلات',
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight:
+                    FontWeight.bold,
               ),
             ),
 
@@ -516,11 +668,12 @@ class AnalysisPanel extends StatelessWidget {
                 ),
               ),
 
-            for (final idx in sortedKeys)
-              _pvRow(
+            for (final index
+                in sortedKeys)
+              _buildPvRow(
                 context,
-                idx,
-                lines[idx]!,
+                index,
+                lines[index]!,
               ),
           ],
         ),
@@ -528,51 +681,67 @@ class AnalysisPanel extends StatelessWidget {
     );
   }
 
-  Widget _pvRow(
+  Widget _buildPvRow(
     BuildContext context,
     int index,
     PvLineDisplay line,
   ) {
     return InkWell(
-      onTap: () => onSelectLine(index),
-      borderRadius: BorderRadius.circular(6),
+      onTap: () =>
+          onSelectLine(index),
+      borderRadius:
+          BorderRadius.circular(6),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(
+        padding:
+            const EdgeInsets.symmetric(
           vertical: 7,
           horizontal: 6,
         ),
-        margin: const EdgeInsets.only(bottom: 2),
+        margin:
+            const EdgeInsets.only(
+          bottom: 2,
+        ),
         child: Row(
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
             SizedBox(
-              width: 28,
+              width: 30,
               child: Text(
                 '#$index',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+                style:
+                    const TextStyle(
+                  fontWeight:
+                      FontWeight.bold,
                 ),
               ),
             ),
 
             Expanded(
               child: Text(
-                line.moves.take(8).join(' '),
-                style: const TextStyle(
-                  fontFamily: 'monospace',
+                line.moves
+                    .take(8)
+                    .join(' '),
+                style:
+                    const TextStyle(
+                  fontFamily:
+                      'monospace',
                   fontSize: 12.5,
                 ),
               ),
             ),
 
-            const SizedBox(width: 6),
+            const SizedBox(
+              width: 6,
+            ),
 
             Text(
               line.evalLabel,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
+              style:
+                  const TextStyle(
+                fontWeight:
+                    FontWeight.bold,
                 fontSize: 12,
               ),
             ),
@@ -590,15 +759,16 @@ class AnalysisPanel extends StatelessWidget {
 
 class PvLineDisplay {
   final int depth;
+
   final String evalLabel;
 
   /// النقلات بصيغة SAN.
   final List<String> moves;
 
-  /// المربع الذي تبدأ منه أفضل نقلة.
+  /// بداية أفضل نقلة UCI.
   final String bestFrom;
 
-  /// المربع الذي تنتهي إليه أفضل نقلة.
+  /// نهاية أفضل نقلة UCI.
   final String bestTo;
 
   const PvLineDisplay({
@@ -638,8 +808,10 @@ class MoveListPanel extends StatelessWidget {
         Text(
           '${move.color == 'w' ? '$moveNumber. ' : ''}'
           '${move.san}',
-          style: const TextStyle(
-            fontFamily: 'monospace',
+          style:
+              const TextStyle(
+            fontFamily:
+                'monospace',
             fontSize: 13,
           ),
         ),
@@ -648,7 +820,8 @@ class MoveListPanel extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding:
+            const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
@@ -656,12 +829,15 @@ class MoveListPanel extends StatelessWidget {
             const Text(
               'قائمة النقلات',
               style: TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight:
+                    FontWeight.bold,
                 fontSize: 16,
               ),
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(
+              height: 8,
+            ),
 
             if (rows.isEmpty)
               const Text(
@@ -674,7 +850,8 @@ class MoveListPanel extends StatelessWidget {
             if (rows.isNotEmpty)
               SizedBox(
                 height: 160,
-                child: SingleChildScrollView(
+                child:
+                    SingleChildScrollView(
                   child: Wrap(
                     spacing: 10,
                     runSpacing: 5,
