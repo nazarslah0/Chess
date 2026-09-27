@@ -15,9 +15,10 @@ dependencies:
   # Real, legal chess move generation / FEN / SAN
   chess: ^0.8.1
 
-  # Stockfish engine Flutter package
-  # This package currently contains Stockfish 17.
-  stockfish_chess_engine: ^0.8.2
+  # Real Stockfish engine (Stockfish 17 core) via Dart FFI — verified
+  # publisher, actively maintained, includes 16 KB memory-page support
+  # required by newer Android devices/Play Store policy.
+  stockfish: ^1.8.1
 
 dev_dependencies:
   flutter_test:
