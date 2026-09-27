@@ -1,5 +1,7 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+
 import 'models.dart';
 import 'piece_painter.dart';
 
@@ -7,9 +9,12 @@ class BoardWidget extends StatelessWidget {
   final GameState state;
   final BoardTheme boardTheme;
   final PieceTheme pieceTheme;
+
   final String? arrowFrom;
   final String? arrowTo;
+
   final Set<String> targets;
+
   final void Function(String square) onTap;
 
   const BoardWidget({
@@ -23,239 +28,336 @@ class BoardWidget extends StatelessWidget {
     this.targets = const {},
   });
 
-  static const files = 'abcdefgh';
+  static const String files = 'abcdefgh';
 
   @override
   Widget build(BuildContext context) {
-    final fenParts = state.currentFen.split(' ');
-    final boardFen = fenParts.isNotEmpty ? fenParts[0] : '';
+    final fen = state.currentFen;
+
+    final fenParts = fen.split(' ');
+
+    final boardFen =
+        fenParts.isNotEmpty ? fenParts.first : '';
 
     final board = GameState.parseBoard(boardFen);
+
     final flipped = state.flipped;
 
-    bool isCheckSquare(String sq) {
-      if (state.mode != 'play') return false;
+    final turn =
+        fenParts.length > 1 ? fenParts[1] : 'w';
+
+    bool isKingInCheck(String square) {
+      if (state.mode != 'play') {
+        return false;
+      }
 
       bool inCheck = false;
 
       try {
         inCheck = state.chess.in_check == true;
-      } catch (_) {}
+      } catch (_) {
+        inCheck = false;
+      }
 
-      if (!inCheck) return false;
+      if (!inCheck) {
+        return false;
+      }
 
-      final turn = fenParts.length > 1 ? fenParts[1] : 'w';
-      final piece = board[sq];
-
-      return piece != null && piece == '${turn}K';
+      return board[square] == '${turn}K';
     }
 
     return AspectRatio(
       aspectRatio: 1,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final size = constraints.maxWidth;
+          final size = math.min(
+            constraints.maxWidth,
+            constraints.maxHeight,
+          );
 
-          return Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: boardTheme.border,
-                    width: 2,
-                  ),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: GridView.builder(
-                    physics:
-                        const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 8,
+          final cell = size / 8;
+
+          return Center(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Stack(
+                children: [
+                  // ==================================================
+                  // الرقعة
+                  // ==================================================
+
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: boardTheme.border,
+                        width: 2,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(6),
                     ),
-                    itemCount: 64,
-                    itemBuilder: (context, index) {
-                      final col = index % 8;
-                      final row = index ~/ 8;
+                    child: ClipRRect(
+                      borderRadius:
+                          BorderRadius.circular(4),
+                      child: GridView.builder(
+                        padding: EdgeInsets.zero,
+                        physics:
+                            const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 8,
+                        ),
+                        itemCount: 64,
+                        itemBuilder:
+                            (context, index) {
+                          final col = index % 8;
+                          final row = index ~/ 8;
 
-                      final f = flipped ? 7 - col : col;
-                      final r = flipped ? row : 7 - row;
+                          // تحويل موضع Grid إلى مربع شطرنج.
+                          final fileIndex =
+                              flipped
+                                  ? 7 - col
+                                  : col;
 
-                      final sq =
-                          files[f] + (r + 1).toString();
+                          final rankIndex =
+                              flipped
+                                  ? row
+                                  : 7 - row;
 
-                      final isDark =
-                          (f + r) % 2 != 0;
+                          final square =
+                              files[fileIndex] +
+                                  (rankIndex + 1)
+                                      .toString();
 
-                      final piece = board[sq];
+                          final isDark =
+                              (fileIndex +
+                                      rankIndex) %
+                                  2 !=
+                              0;
 
-                      final isLast =
-                          sq == state.lastFrom ||
-                          sq == state.lastTo;
+                          final piece =
+                              board[square];
 
-                      final isSel =
-                          sq == state.selectedSquare;
+                          final isLastMove =
+                              square ==
+                                      state.lastFrom ||
+                                  square ==
+                                      state.lastTo;
 
-                      final isTarget =
-                          targets.contains(sq);
+                          final isSelected =
+                              square ==
+                                  state.selectedSquare;
 
-                      final isCheck =
-                          isCheckSquare(sq);
+                          final isTarget =
+                              targets.contains(square);
 
-                      return GestureDetector(
-                        onTap: () => onTap(sq),
-                        child: Container(
-                          color: isDark
-                              ? boardTheme.dark
-                              : boardTheme.light,
-                          child: Stack(
-                            children: [
-                              if (isLast)
-                                Positioned.fill(
-                                  child: Container(
-                                    color:
-                                        boardTheme.lastMove,
-                                  ),
-                                ),
+                          final isCheck =
+                              isKingInCheck(square);
 
-                              if (isSel)
-                                Positioned.fill(
-                                  child: Container(
-                                    color:
-                                        boardTheme.selected,
-                                  ),
-                                ),
-
-                              if (isCheck)
-                                Positioned.fill(
-                                  child: Container(
-                                    decoration:
-                                        BoxDecoration(
-                                      border: Border.all(
-                                        color:
-                                            boardTheme.checkColor,
-                                        width: 3,
+                          return GestureDetector(
+                            behavior:
+                                HitTestBehavior.opaque,
+                            onTap: () =>
+                                onTap(square),
+                            child: Container(
+                              color: isDark
+                                  ? boardTheme.dark
+                                  : boardTheme.light,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // آخر نقلة
+                                  if (isLastMove)
+                                    Positioned.fill(
+                                      child: Container(
+                                        color: boardTheme
+                                            .lastMove,
                                       ),
                                     ),
-                                  ),
-                                ),
 
-                              if (piece != null)
-                                Positioned.fill(
-                                  child: Padding(
-                                    padding:
-                                        const EdgeInsets.all(4),
-                                    child: pieceTheme
-                                                .assetFolder !=
-                                            null
-                                        ? Image.asset(
-                                            pieceTheme.assetPath(
-                                              piece.substring(
-                                                0,
-                                                1,
-                                              ),
-                                              piece.substring(
-                                                1,
-                                              ),
-                                            ),
-                                            fit: BoxFit.contain,
-                                          )
-                                        : CustomPaint(
-                                            size: Size.infinite,
-                                            painter:
-                                                PiecePainter(
-                                              piece.substring(1),
-                                              piece.substring(0, 1),
-                                              pieceTheme,
-                                            ),
+                                  // المربع المحدد
+                                  if (isSelected)
+                                    Positioned.fill(
+                                      child: Container(
+                                        color: boardTheme
+                                            .selected,
+                                      ),
+                                    ),
+
+                                  // الملك في كش
+                                  if (isCheck)
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration:
+                                            BoxDecoration(
+                                          border:
+                                              Border.all(
+                                            color: boardTheme
+                                                .checkColor,
+                                            width: 3,
                                           ),
-                                  ),
-                                ),
-
-                              if (isTarget)
-                                Align(
-                                  alignment:
-                                      Alignment.center,
-                                  child: Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration:
-                                        BoxDecoration(
-                                      color:
-                                          boardTheme.target,
-                                      shape:
-                                          BoxShape.circle,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
 
-                              if (col == 0)
-                                Positioned(
-                                  top: 2,
-                                  left: 2,
-                                  child: Text(
-                                    '${r + 1}',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: boardTheme.border
-                                          .withOpacity(0.7),
+                                  // القطعة
+                                  if (piece != null)
+                                    Positioned.fill(
+                                      child: Padding(
+                                        padding:
+                                            const EdgeInsets
+                                                .all(3),
+                                        child: _buildPiece(
+                                          piece,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
 
-                              if (row == 7)
-                                Positioned(
-                                  bottom: 1,
-                                  right: 3,
-                                  child: Text(
-                                    files[f],
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: boardTheme.border
-                                          .withOpacity(0.7),
+                                  // هدف النقلة
+                                  if (isTarget)
+                                    Center(
+                                      child: Container(
+                                        width: cell *
+                                            0.18,
+                                        height: cell *
+                                            0.18,
+                                        decoration:
+                                            BoxDecoration(
+                                          color: boardTheme
+                                              .target,
+                                          shape:
+                                              BoxShape.circle,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
 
-              // السهم فوق الرقعة
-              if (_validSquare(arrowFrom) &&
-                  _validSquare(arrowTo) &&
-                  arrowFrom != arrowTo)
-                IgnorePointer(
-                  child: CustomPaint(
-                    size: Size(size, size),
-                    painter: _ArrowPainter(
-                      arrowFrom!,
-                      arrowTo!,
-                      flipped,
-                      Colors.blueAccent,
+                                  // أرقام الصفوف
+                                  if (col == 0)
+                                    Positioned(
+                                      top: 2,
+                                      left: 3,
+                                      child: Text(
+                                        '${rankIndex + 1}',
+                                        style:
+                                            TextStyle(
+                                          fontSize: 9,
+                                          fontWeight:
+                                              FontWeight
+                                                  .bold,
+                                          color: boardTheme
+                                              .border
+                                              .withOpacity(
+                                                  0.75),
+                                        ),
+                                      ),
+                                    ),
+
+                                  // أسماء الأعمدة
+                                  if (row == 7)
+                                    Positioned(
+                                      bottom: 1,
+                                      right: 3,
+                                      child: Text(
+                                        files[fileIndex],
+                                        style:
+                                            TextStyle(
+                                          fontSize: 9,
+                                          fontWeight:
+                                              FontWeight
+                                                  .bold,
+                                          color: boardTheme
+                                              .border
+                                              .withOpacity(
+                                                  0.75),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
-                ),
-            ],
+
+                  // ==================================================
+                  // سهم أفضل نقلة
+                  // ==================================================
+
+                  if (_validSquare(arrowFrom) &&
+                      _validSquare(arrowTo) &&
+                      arrowFrom != arrowTo)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _ArrowPainter(
+                            from: arrowFrom!,
+                            to: arrowTo!,
+                            flipped: flipped,
+                            color:
+                                Colors.blueAccent,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           );
         },
       ),
     );
   }
 
+  Widget _buildPiece(String piece) {
+    if (piece.length != 2) {
+      return const SizedBox.shrink();
+    }
+
+    final color = piece.substring(0, 1);
+    final type = piece.substring(1, 2);
+
+    if (pieceTheme.assetFolder != null) {
+      return Image.asset(
+        pieceTheme.assetPath(
+          color,
+          type,
+        ),
+        fit: BoxFit.contain,
+        errorBuilder:
+            (context, error, stackTrace) {
+          return CustomPaint(
+            painter: PiecePainter(
+              type,
+              color,
+              pieceTheme,
+            ),
+          );
+        },
+      );
+    }
+
+    return CustomPaint(
+      painter: PiecePainter(
+        type,
+        color,
+        pieceTheme,
+      ),
+    );
+  }
+
   static bool _validSquare(String? square) {
-    if (square == null || square.length != 2) {
+    if (square == null ||
+        square.length != 2) {
       return false;
     }
 
-    final file = square.codeUnitAt(0);
-    final rank = square.codeUnitAt(1);
+    final file =
+        square.codeUnitAt(0);
+
+    final rank =
+        square.codeUnitAt(1);
 
     return file >= 97 &&
         file <= 104 &&
@@ -264,38 +366,59 @@ class BoardWidget extends StatelessWidget {
   }
 }
 
+
+// ============================================================
+// رسم سهم أفضل نقلة
+// ============================================================
+
 class _ArrowPainter extends CustomPainter {
   final String from;
   final String to;
   final bool flipped;
   final Color color;
 
-  _ArrowPainter(
-    this.from,
-    this.to,
-    this.flipped,
-    this.color,
-  );
+  const _ArrowPainter({
+    required this.from,
+    required this.to,
+    required this.flipped,
+    required this.color,
+  });
 
   Offset _center(
-    String sq,
+    String square,
     double cell,
   ) {
-    final f =
-        BoardWidget.files.indexOf(sq[0]);
-
-    final r =
-        int.parse(sq.substring(1)) - 1;
-
-    if (f < 0 || f > 7 || r < 0 || r > 7) {
+    if (square.length != 2) {
       return Offset.zero;
     }
 
-    final col =
-        flipped ? 7 - f : f;
+    final file =
+        BoardWidget.files.indexOf(
+      square[0],
+    );
 
-    final row =
-        flipped ? r : 7 - r;
+    final rank =
+        int.tryParse(
+      square.substring(1),
+    );
+
+    if (file < 0 ||
+        file > 7 ||
+        rank == null ||
+        rank < 1 ||
+        rank > 8) {
+      return Offset.zero;
+    }
+
+    final rankIndex = rank - 1;
+
+    final col = flipped
+        ? 7 - file
+        : file;
+
+    final row = flipped
+        ? rankIndex
+        : 7 - rankIndex;
 
     return Offset(
       col * cell + cell / 2,
@@ -315,11 +438,17 @@ class _ArrowPainter extends CustomPainter {
 
     final cell = size.width / 8;
 
-    final p1 = _center(from, cell);
-    final p2 = _center(to, cell);
+    final startCenter =
+        _center(from, cell);
 
-    final delta = p2 - p1;
-    final distance = delta.distance;
+    final endCenter =
+        _center(to, cell);
+
+    final delta =
+        endCenter - startCenter;
+
+    final distance =
+        delta.distance;
 
     if (distance < 1) {
       return;
@@ -328,32 +457,38 @@ class _ArrowPainter extends CustomPainter {
     final direction =
         delta / distance;
 
-    final angle =
-        math.atan2(
+    final angle = math.atan2(
       direction.dy,
       direction.dx,
     );
 
-    // نترك مسافة من القطعة في البداية والنهاية
-    // حتى لا يغطي السهم القطع.
+    // لا نجعل السهم يبدأ من مركز القطعة.
     final startPadding =
         cell * 0.22;
 
+    // نترك مساحة قبل رأس السهم.
     final endPadding =
-        cell * 0.30;
+        cell * 0.28;
 
     final start =
-        p1 + direction * startPadding;
+        startCenter +
+            direction *
+                startPadding;
 
     final end =
-        p2 - direction * endPadding;
+        endCenter -
+            direction *
+                endPadding;
 
+    // ==========================================================
     // جسم السهم
-    final shaft = Paint()
+    // ==========================================================
+
+    final shaftPaint = Paint()
       ..color =
           color.withOpacity(0.82)
       ..strokeWidth =
-          cell * 0.12
+          cell * 0.115
       ..strokeCap =
           StrokeCap.round
       ..style =
@@ -362,40 +497,50 @@ class _ArrowPainter extends CustomPainter {
     canvas.drawLine(
       start,
       end,
-      shaft,
+      shaftPaint,
     );
 
+    // ==========================================================
     // رأس السهم
-    final arrowLength =
-        cell * 0.34;
+    // ==========================================================
 
-    final arrowWidth =
-        cell * 0.20;
+    final headLength =
+        cell * 0.30;
 
-    final tip = end +
-        direction *
-            (cell * 0.12);
+    final headWidth =
+        cell * 0.18;
 
-    final left = Offset(
-      tip.dx -
-          arrowLength *
-              math.cos(angle - 0.48),
-      tip.dy -
-          arrowLength *
-              math.sin(angle - 0.48),
+    final tip =
+        end +
+            direction *
+                (cell * 0.08);
+
+    final perpendicular =
+        Offset(
+      -direction.dy,
+      direction.dx,
     );
 
-    final right = Offset(
-      tip.dx -
-          arrowLength *
-              math.cos(angle + 0.48),
-      tip.dy -
-          arrowLength *
-              math.sin(angle + 0.48),
-    );
+    final base =
+        tip -
+            direction *
+                headLength;
+
+    final left =
+        base +
+            perpendicular *
+                headWidth;
+
+    final right =
+        base -
+            perpendicular *
+                headWidth;
 
     final path = Path()
-      ..moveTo(tip.dx, tip.dy)
+      ..moveTo(
+        tip.dx,
+        tip.dy,
+      )
       ..lineTo(
         left.dx,
         left.dy,
@@ -408,7 +553,7 @@ class _ArrowPainter extends CustomPainter {
 
     final headPaint = Paint()
       ..color =
-          color.withOpacity(0.90)
+          color.withOpacity(0.92)
       ..style =
           PaintingStyle.fill;
 
