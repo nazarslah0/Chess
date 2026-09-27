@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:stockfish_chess_engine/stockfish_chess_engine.dart';
+import 'package:stockfish/stockfish.dart';
 
 /// One MultiPV line reported by the real Stockfish engine (never fabricated).
 class PvLine {
@@ -29,11 +29,19 @@ class EngineService {
   Future<void> init() async {
     onStatus?.call('🟡 جاري تشغيل Stockfish...');
     try {
-      _sf = Stockfish();
-      _sub = _sf!.stdout.listen(_handleLine);
-      // Give the native isolate a moment to spin up before the handshake.
-      await Future.delayed(const Duration(milliseconds: 400));
-      _send('uci');
+      final sf = Stockfish();
+      _sf = sf;
+      _sub = sf.stdout.listen(_handleLine);
+
+      void checkState() {
+        if (sf.state.value == StockfishState.ready && !ready) {
+          ready = true;
+          onStatus?.call('🟢 Stockfish جاهز (Stockfish 17، حزمة stockfish v1.8.1)');
+        }
+      }
+
+      sf.state.addListener(checkState);
+      checkState();
     } catch (e) {
       onStatus?.call('🔴 فشل تشغيل Stockfish: $e');
     }
@@ -45,15 +53,6 @@ class EngineService {
 
   void _handleLine(String raw) {
     final line = raw.trim();
-    if (line == 'uciok') {
-      _send('isready');
-      return;
-    }
-    if (line == 'readyok') {
-      ready = true;
-      onStatus?.call('🟢 Stockfish جاهز (Stockfish 17، NNUE حقيقي)');
-      return;
-    }
     if (line.startsWith('info') && analyzing) {
       _parseInfo(line);
       return;
