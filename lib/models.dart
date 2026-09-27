@@ -5,7 +5,14 @@ import 'package:chess/chess.dart' as ch;
 
 class BoardTheme {
   final String name;
-  final Color light, dark, lastMove, checkColor, selected, target, border;
+  final Color light;
+  final Color dark;
+  final Color lastMove;
+  final Color checkColor;
+  final Color selected;
+  final Color target;
+  final Color border;
+
   const BoardTheme({
     required this.name,
     required this.light,
@@ -20,8 +27,12 @@ class BoardTheme {
 
 class PieceTheme {
   final String name;
-  final Color whiteFill, whiteStroke, blackFill, blackStroke;
-  final String? assetFolder; // when set, real PNG artwork is used instead of drawing
+  final Color whiteFill;
+  final Color whiteStroke;
+  final Color blackFill;
+  final Color blackStroke;
+  final String? assetFolder;
+
   const PieceTheme({
     required this.name,
     required this.whiteFill,
@@ -31,9 +42,13 @@ class PieceTheme {
     this.assetFolder,
   });
 
-  /// Asset path for piece [colorLetter] ('w'/'b') and [typeLetter] (K,Q,R,B,N,P).
-  String assetPath(String colorLetter, String typeLetter) =>
-      'assets/pieces/$assetFolder/$colorLetter$typeLetter.png';
+  String assetPath(
+    String colorLetter,
+    String typeLetter,
+  ) {
+    return 'assets/pieces/$assetFolder/'
+        '$colorLetter$typeLetter.png';
+  }
 }
 
 const List<BoardTheme> boardThemes = [
@@ -87,7 +102,6 @@ const List<BoardTheme> boardThemes = [
     target: Color(0x556750A4),
     border: Color(0xFF463B30),
   ),
-  // Colors taken directly from the board pack the user provided.
   BoardTheme(
     name: 'أخضر (المجموعة المرفقة)',
     light: Color(0xFFFFF2D4),
@@ -121,7 +135,6 @@ const List<BoardTheme> boardThemes = [
 ];
 
 const List<PieceTheme> pieceThemes = [
-  // Real artwork you provided — used directly, no drawing.
   PieceTheme(
     name: 'قطع حقيقية — كلاسيكي',
     whiteFill: Color(0xFFFCFCFC),
@@ -146,7 +159,6 @@ const List<PieceTheme> pieceThemes = [
     blackStroke: Color(0xFFEAEAEA),
     assetFolder: 'wood',
   ),
-  // Hand-drawn (CustomPainter) fallback themes — no assets needed.
   PieceTheme(
     name: 'مرسومة — كلاسيكي أبيض/أسود',
     whiteFill: Color(0xFFFCFCFC),
@@ -181,253 +193,312 @@ const List<PieceTheme> pieceThemes = [
 
 class MoveEntry {
   final String san;
-  final String color; // 'w' or 'b'
-  const MoveEntry(this.san, this.color);
+  final String color;
+
+  const MoveEntry(
+    this.san,
+    this.color,
+  );
 }
 
 class GameState extends ChangeNotifier {
   ch.Chess chess = ch.Chess();
-  String mode = 'play'; // 'setup' | 'play'
 
-  // setup-mode board, independent of chess.Chess to avoid any ambiguity
-  // about that package's put()/remove()/get() signatures.
-  Map<String, String> setupBoard = {}; // e.g. 'e4' -> 'wP'
+  String mode = 'play';
+
+  /// لوحة الإعداد مستقلة عن chess.Chess.
+  Map<String, String> setupBoard = {};
+
   String setupTurn = 'w';
-  bool ck = true, cq = true, ckb = true, cqb = true;
+
+  bool ck = true;
+  bool cq = true;
+  bool ckb = true;
+  bool cqb = true;
+
   String ep = '-';
 
-  String? lastFrom, lastTo, selectedSquare;
+  String? lastFrom;
+  String? lastTo;
+  String? selectedSquare;
+
   bool flipped = false;
 
   List<MoveEntry> history = [];
+
   String legalMessage = 'وضعية قانونية';
   bool legal = true;
 
   static const files = 'abcdefgh';
 
+  // ------------------------------------------------------------
+  // الوضعية الابتدائية
+  // ------------------------------------------------------------
+
   void startPosition() {
     chess = ch.Chess();
+
     mode = 'play';
+
+    setupBoard = {};
+    setupTurn = 'w';
+
+    ck = true;
+    cq = true;
+    ckb = true;
+    cqb = true;
+
+    ep = '-';
+
     lastFrom = null;
     lastTo = null;
     selectedSquare = null;
+
     history = [];
+
     _validate();
     notifyListeners();
   }
+
+  // ------------------------------------------------------------
+  // مسح الرقعة وبدء وضع الإعداد
+  // ------------------------------------------------------------
 
   void clearBoardForSetup() {
     setupBoard = {};
+
     mode = 'setup';
+
+    setupTurn = 'w';
+
+    ck = false;
+    cq = false;
+    ckb = false;
+    cqb = false;
+
+    ep = '-';
+
     lastFrom = null;
     lastTo = null;
     selectedSquare = null;
+
     history = [];
+
     _validate();
     notifyListeners();
   }
 
+  // ------------------------------------------------------------
+  // الدخول إلى إعداد الوضعية من الوضع الحالي
+  // ------------------------------------------------------------
+
   void enterSetupModeFromCurrent() {
-    final parts = chess.fen.split(' ');
-    setupBoard = _boardPartToMap(parts[0]);
-    setupTurn = parts.length > 1 ? parts[1] : 'w';
-    final castle = parts.length > 2 ? parts[2] : '-';
+    final fen = chess.fen;
+    final parts = fen.split(RegExp(r'\s+'));
+
+    if (parts.isEmpty) {
+      return;
+    }
+
+    setupBoard =
+        _boardPartToMap(parts[0]);
+
+    setupTurn =
+        parts.length > 1 &&
+                (parts[1] == 'b')
+            ? 'b'
+            : 'w';
+
+    final castle =
+        parts.length > 2
+            ? parts[2]
+            : '-';
+
     ck = castle.contains('K');
     cq = castle.contains('Q');
     ckb = castle.contains('k');
     cqb = castle.contains('q');
-    ep = (parts.length > 3 && parts[3] != '-') ? parts[3] : '-';
+
+    ep = parts.length > 3
+        ? parts[3]
+        : '-';
+
+    _sanitizeSetupRights();
+
     mode = 'setup';
+
     selectedSquare = null;
+
     _validate();
     notifyListeners();
   }
 
+  // ------------------------------------------------------------
+  // العودة من الإعداد إلى اللعب
+  // ------------------------------------------------------------
+
   bool enterPlayModeFromSetup() {
+    _sanitizeSetupRights();
+
     final fen = buildSetupFen();
+
     final test = ch.Chess();
-    final ok = test.load(fen);
-    if (ok != false) {
-      chess = test;
-      mode = 'play';
-      lastFrom = null;
-      lastTo = null;
-      selectedSquare = null;
-      history = [];
-      _validate();
+
+    try {
+      final result = test.load(fen);
+
+      if (result == false) {
+        legal = false;
+        legalMessage =
+            'الوضعية غير صالحة';
+        notifyListeners();
+        return false;
+      }
+    } catch (_) {
+      legal = false;
+      legalMessage =
+          'تعذر تحميل الوضعية';
       notifyListeners();
-      return true;
+      return false;
     }
-    return false;
+
+    chess = test;
+
+    mode = 'play';
+
+    lastFrom = null;
+    lastTo = null;
+    selectedSquare = null;
+
+    history = [];
+
+    _validate();
+
+    notifyListeners();
+
+    return true;
   }
+
+  // ------------------------------------------------------------
+  // تحميل FEN
+  // ------------------------------------------------------------
 
   bool loadFen(String fen) {
-    final test = ch.Chess();
-    final ok = test.load(fen.trim());
-    if (ok != false) {
-      chess = test;
-      mode = 'play';
-      lastFrom = null;
-      lastTo = null;
-      selectedSquare = null;
-      history = [];
-      _validate();
-      notifyListeners();
-      return true;
+    final cleanFen =
+        fen.trim();
+
+    if (cleanFen.isEmpty) {
+      return false;
     }
-    return false;
+
+    final test = ch.Chess();
+
+    try {
+      final result =
+          test.load(cleanFen);
+
+      if (result == false) {
+        legal = false;
+        legalMessage =
+            'FEN غير صالح';
+        notifyListeners();
+        return false;
+      }
+    } catch (_) {
+      legal = false;
+      legalMessage =
+          'FEN غير صالح';
+      notifyListeners();
+      return false;
+    }
+
+    chess = test;
+
+    mode = 'play';
+
+    lastFrom = null;
+    lastTo = null;
+    selectedSquare = null;
+
+    history = [];
+
+    _validate();
+
+    notifyListeners();
+
+    return true;
   }
 
-  static Map<String, String> parseBoard(String boardPart) {
-    final map = <String, String>{};
-    final ranks = boardPart.split('/');
+  // ------------------------------------------------------------
+  // تحويل FEN board إلى Map
+  // ------------------------------------------------------------
+
+  static Map<String, String> parseBoard(
+    String boardPart,
+  ) {
+    final map =
+        <String, String>{};
+
+    final ranks =
+        boardPart.split('/');
+
+    if (ranks.length != 8) {
+      return map;
+    }
+
     for (int r = 0; r < 8; r++) {
       int fIdx = 0;
-      for (final c in ranks[r].split('')) {
-        final n = int.tryParse(c);
+
+      for (final c
+          in ranks[r].split('')) {
+        final n =
+            int.tryParse(c);
+
         if (n != null) {
           fIdx += n;
-        } else {
-          final color = c == c.toUpperCase() ? 'w' : 'b';
-          final type = c.toUpperCase();
-          final sq = files[fIdx] + (8 - r).toString();
-          map[sq] = color + type;
-          fIdx += 1;
+          continue;
         }
+
+        if (fIdx < 0 ||
+            fIdx >= 8) {
+          continue;
+        }
+
+        final color =
+            c == c.toUpperCase()
+                ? 'w'
+                : 'b';
+
+        final type =
+            c.toUpperCase();
+
+        final sq =
+            files[fIdx] +
+                (8 - r).toString();
+
+        map[sq] =
+            color + type;
+
+        fIdx++;
       }
     }
+
     return map;
   }
 
-  Map<String, String> _boardPartToMap(String boardPart) => parseBoard(boardPart);
-
-  String buildSetupFen() {
-    final rows = <String>[];
-    for (int rank = 8; rank >= 1; rank--) {
-      String row = '';
-      int empty = 0;
-      for (int f = 0; f < 8; f++) {
-        final sq = files[f] + rank.toString();
-        final piece = setupBoard[sq];
-        if (piece == null) {
-          empty++;
-        } else {
-          if (empty > 0) {
-            row += empty.toString();
-            empty = 0;
-          }
-          final letter = piece.substring(1, 2);
-          row += piece.startsWith('w') ? letter : letter.toLowerCase();
-        }
-      }
-      if (empty > 0) row += empty.toString();
-      rows.add(row);
-    }
-    String castle = '';
-    if (ck) castle += 'K';
-    if (cq) castle += 'Q';
-    if (ckb) castle += 'k';
-    if (cqb) castle += 'q';
-    if (castle.isEmpty) castle = '-';
-    return '${rows.join('/')} $setupTurn $castle $ep 0 1';
+  Map<String, String>
+      _boardPartToMap(
+    String boardPart,
+  ) {
+    return parseBoard(
+      boardPart,
+    );
   }
 
-  String get currentFen => mode == 'setup' ? buildSetupFen() : chess.fen;
+  // ------------------------------------------------------------
+  // تنظيف حقوق التبييت
+  // ------------------------------------------------------------
 
-  void placeSetupPiece(String square, String colorType) {
-    setupBoard[square] = colorType;
-    _validate();
-    notifyListeners();
-  }
-
-  void eraseSetupSquare(String square) {
-    setupBoard.remove(square);
-    _validate();
-    notifyListeners();
-  }
-
-  void tapSetupSelect(String? square) {
-    selectedSquare = square;
-    notifyListeners();
-  }
-
-  /// Returns list of legal destination squares for [from], using only the
-  /// documented move()/undo() API to stay robust against Move-object shape.
-  List<String> legalTargets(String from) {
-    final targets = <String>[];
-    for (final rf in files.split('')) {
-      for (int rr = 1; rr <= 8; rr++) {
-        final to = '$rf$rr';
-        if (to == from) continue;
-        final res = chess.move({'from': from, 'to': to, 'promotion': 'q'});
-        if (res != null && res != false) {
-          chess.undo();
-          targets.add(to);
-        }
-      }
-    }
-    return targets;
-  }
-
-  /// Attempts to play from->to (with optional promotion). Returns the SAN
-  /// string on success, or null if illegal.
-  String? tryMove(String from, String to, {String? promotion}) {
-    final mover = chess.fen.split(' ')[1];
-    final args = <String, dynamic>{'from': from, 'to': to};
-    if (promotion != null) args['promotion'] = promotion;
-    final res = chess.move(args);
-    if (res == null || res == false) return null;
-    // chess.move() may return a bool or a Move-like object depending on
-    // package version; derive SAN safely from the move history instead.
-    String san;
-    try {
-      final hist = chess.getHistory({'verbose': false}) as List;
-      san = hist.isNotEmpty ? hist.last.toString() : '$from$to';
-    } catch (_) {
-      san = '$from$to';
-    }
-    lastFrom = from;
-    lastTo = to;
-    selectedSquare = null;
-    history.add(MoveEntry(san, mover));
-    _validate();
-    notifyListeners();
-    return san;
-  }
-
-  void _validate() {
-    if (mode == 'setup') {
-      final test = ch.Chess();
-      final ok = test.load(buildSetupFen());
-      legal = ok != false;
-      legalMessage = legal ? 'وضعية قانونية' : 'الوضعية غير قانونية';
-    } else {
-      legal = true;
-      try {
-        if (chess.in_checkmate == true) {
-          legalMessage = 'كش مات';
-        } else if (chess.in_stalemate == true) {
-          legalMessage = 'تعادل (تجميد)';
-        } else if (chess.in_check == true) {
-          legalMessage = 'كش';
-        } else if (chess.in_draw == true) {
-          legalMessage = 'تعادل';
-        } else {
-          legalMessage = 'وضعية قانونية';
-        }
-      } catch (_) {
-        legalMessage = 'وضعية قانونية';
-      }
-    }
-  }
-
-  void flipBoard() {
-    flipped = !flipped;
-    notifyListeners();
-  }
-
-  void refresh() {
-    _validate();
-    notifyListeners();
-  }
-}
+  void _sanitizeSetupRights() {
+    // التبييت الأبيض يحتاج:
+    // الملك e

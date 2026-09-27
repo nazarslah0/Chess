@@ -9,38 +9,128 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.5'
           channel: 'stable'
           cache: true
 
-      # This repo ships only Dart source (lib/, pubspec.yaml). The native
-      # android/ and ios/ platform folders are generated here instead of
-      # being committed, since `flutter create` output is machine/toolchain
-      # specific. This does not overwrite lib/ or pubspec.yaml.
-      - name: Generate platform folders
-        run: flutter create --platforms=android,ios --org com.chessanalyzer --project-name chess .
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Generate Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --org com.chessanalyzer \
+            --project-name chess \
+            .
+
+      # ---------------------------------------------------------
+      # Android native bridge
+      # ---------------------------------------------------------
+      - name: Configure Android native bridge
+        run: |
+          mkdir -p android/app/src/main/kotlin/com/chessanalyzer/chess
+
+          cat > android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt <<'EOF'
+          package com.chessanalyzer.chess
+
+          import android.os.Bundle
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity : FlutterActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+              }
+          }
+          EOF
+
+          echo "MainActivity created:"
+          cat android/app/src/main/kotlin/com/chessanalyzer/chess/MainActivity.kt
+
+      # ---------------------------------------------------------
+      # Download official Stockfish 19
+      # ---------------------------------------------------------
+      - name: Download Stockfish 19
+        run: |
+          git clone \
+            --depth 1 \
+            --branch sf_19 \
+            https://github.com/official-stockfish/Stockfish.git \
+            stockfish
+
+          cd stockfish
+
+          echo "Stockfish revision:"
+          git describe --tags --always
+          git rev-parse HEAD
+
+      # ---------------------------------------------------------
+      # Build Stockfish 19 for ARM64
+      # ---------------------------------------------------------
+      - name: Build Stockfish 19 ARM64
+        run: |
+          cd stockfish/src
+
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+
+          make -j2 build \
+            ARCH=armv8 \
+            COMP=ndk
+
+          echo "Built Stockfish:"
+          file stockfish
+          ls -lh stockfish
+
+      # ---------------------------------------------------------
+      # Keep the native Stockfish binary inside the APK
+      # ---------------------------------------------------------
+      - name: Prepare Stockfish native files
+        run: |
+          mkdir -p android/app/src/main/assets/stockfish
+
+          cp stockfish/src/stockfish \
+            android/app/src/main/assets/stockfish/stockfish
+
+          chmod 755 \
+            android/app/src/main/assets/stockfish/stockfish
+
+          echo "Stockfish binary:"
+          ls -lh \
+            android/app/src/main/assets/stockfish/stockfish
+
+      # ---------------------------------------------------------
+      # Flutter dependencies
+      # ---------------------------------------------------------
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Static analysis (non-blocking)
+      # ---------------------------------------------------------
+      # Static analysis
+      # ---------------------------------------------------------
+      - name: Static analysis
         run: flutter analyze || true
 
-      - name: Build a single release APK that installs on any phone
-        run: flutter build apk --release
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chess-analyzer-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-
-      - name: Attach APK to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+      # ---------------------------------------------------------
+      # Build ARM64 APK
+      # ---------------------------------------------------------
+      - name: Build ARM64 release APK
+        run: |
+          flutter build apk \
+            --
